@@ -170,7 +170,13 @@ final class Interpreter(
 
   def visitLambda(n: ast.Lambda)(using context: Context): Value =
     ???
-
+    /*
+    val lambdaBody = n.body.visit(this)
+    val currentFrame = context.flattened
+    val captures = currentFrame.filterNot { case (name, _) => n.parameters.exists(_.identifier.name == name.identifier) }
+    val capturesFrame = captures.toMap
+    val newContext = context.pushing(capturesFrame)
+    Value.Lambda(n., lambdaBody, capturesFrame)(using newContext)*/
   def visitParenthesizedExpression(n: ast.ParenthesizedExpression)(using context: Context): Value =
     // TODO
     n.inner.visit(this)
@@ -178,22 +184,20 @@ final class Interpreter(
   def visitAscribedExpression(n: ast.AscribedExpression)(using context: Context): Value =
 
     val exprValue = n.inner.visit(this) //evaluate the expression
-    val exprType = n.inner.tpe(using given_TypedProgram)
+    val exprType = exprValue.dynamicType
     val ascribedType = n.ascription.tpe(using given_TypedProgram)
 
     n.operation match {
       case ast.Typecast.Widen => exprValue //just return expression value
 
       case ast.Typecast.NarrowUnconditionally =>
-        if (exprType.isSubtypeOf(ascribedType)) {
+        if (ascribedType.isSubtypeOf(exprType)) {
          exprValue
        } else {
          throw Panic("type missmatch in narrowing")
        }
-
-
       case ast.Typecast.Narrow =>
-        if (exprType.isSubtypeOf(ascribedType)) {
+        if (ascribedType.isSubtypeOf(exprType)) {
           Value.some(exprValue)
         } else {
           Value.none
