@@ -160,12 +160,8 @@ final class Interpreter(
     unexpectedVisit(n)
 
   def visitLet(n: ast.Let)(using context: Context): Value =
-    val bindingValue = n.binding.initializer.map(_.visit(this)).getOrElse(Value.unit)
-
-    val newFrame: Interpreter.Frame = Map(symbols.Name(None, n.binding.identifier) -> bindingValue)
-
-    val newContext = context.pushing(newFrame)
-
+    val value = n.binding.initializer.get.visit(this)(using context)
+    val newContext = context.pushing(Map(n.binding.nameDeclared -> value))
     n.body.visit(this)(using newContext)
 
   def visitLambda(n: ast.Lambda)(using context: Context): Value =
