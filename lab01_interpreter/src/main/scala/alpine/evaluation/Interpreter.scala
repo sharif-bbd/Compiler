@@ -114,11 +114,12 @@ final class Interpreter(
   def visitApplication(n: ast.Application)(using context: Context): Value =
     val functionEntity = n.function.referredEntity.get.entity
 
-    val evaluatedArgs = n.arguments.map(arg => arg.visit(this))
-    val functionNode = functionEntity match {
+    val evaluatedArgs = n.arguments.map(arg => arg.value.visit(this))
+    
+    val functionNode = functionEntity match
       case e: Entity.Builtin => builtin(e)
       case b: Entity.Declaration => context.getLocal(b.name).getOrElse(getGlobal(b).get)
-    }
+
     call(functionNode, evaluatedArgs)
 
   def visitPrefixApplication(n: ast.PrefixApplication)(using context: Context): Value =
@@ -144,18 +145,16 @@ final class Interpreter(
     }
 
   def visitMatch(n: ast.Match)(using context: Context): Value =
-    ???
-  /*
     val scrutineeValue = n.scrutinee.visit(this)
     for (matchCase <- n.cases) {
-    matches(scrutineeValue, matchCase.pattern) match {
-      case Some(bindings) =>
-        val newContext = context.pushing(bindings)
-        return matchCase.expression.visit(this)(using newContext)
-      case None =>
+      matches(scrutineeValue, matchCase.pattern) match {
+        case Some(bindings) =>
+          val newContext = context.pushing(bindings)
+          matchCase.visit(this)(using context)
+        case None =>
+      }
     }
-  }
-throw Panic("No matching pattern found in match expression")*/
+    throw Panic("No matching pattern found in match expression")
 
   def visitMatchCase(n: ast.Match.Case)(using context: Context): Value =
     unexpectedVisit(n)
@@ -272,12 +271,9 @@ throw Panic("No matching pattern found in match expression")*/
         val argFrame = l.inputs.zip(a).map{
           case (param, argValue) => (param.nameDeclared,argValue)
         }.toMap
-
-
+        
         val combinedFrame =l.captures ++ argFrame
-
         val newContext =context.pushing(combinedFrame)
-
 
         l.body.visit(this)(using newContext)
 
