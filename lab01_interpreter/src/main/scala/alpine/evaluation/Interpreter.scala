@@ -15,15 +15,15 @@ import scala.util.control.NoStackTrace
 
 /** The evaluation of an Alpine program.
  *
- *  @param syntax The program being evaluated.
- *  @param standardOutput The standard output of the interpreter.
- *  @param standardError The standard output of the interpreter.
+ * @param syntax         The program being evaluated.
+ * @param standardOutput The standard output of the interpreter.
+ * @param standardError  The standard output of the interpreter.
  */
 final class Interpreter(
-    syntax: TypedProgram,
-    standardOutput: OutputStream,
-    standardError: OutputStream
-) extends ast.TreeVisitor[Interpreter.Context, Value]:
+                         syntax: TypedProgram,
+                         standardOutput: OutputStream,
+                         standardError: OutputStream
+                       ) extends ast.TreeVisitor[Interpreter.Context, Value]:
 
   import Interpreter.Context
 
@@ -82,7 +82,24 @@ final class Interpreter(
     Value.Builtin(n.value, Type.String)
 
   def visitRecord(n: ast.Record)(using context: Context): Value =
-    ???
+    val evaluatedFields = mutable.Map[String, Value]()
+
+    val fieldTypes = mutable.Map[String, symbols.Type]()
+
+    n.fields.foreach(field =>
+      val fieldName = field.label.getOrElse(throw new RuntimeException("Record field without a label"))
+      val fieldValue = field.value.visit(this)
+      evaluatedFields(fieldName) = fieldValue
+      fieldTypes(fieldName) = field.value.tpe(using given_TypedProgram)
+    )
+
+    val fieldValues = evaluatedFields.values.toList
+
+    val labeledFieldTypes = fieldTypes.map { case (name, typ) =>
+      symbols.Type.Labeled(Option(name), typ)
+    }.toList
+    val recordType = symbols.Type.Record(n.identifier, labeledFieldTypes)
+    Value.Record(n.identifier, fieldValues, recordType)
 
   def visitSelection(n: ast.Selection)(using context: Context): Value =
     n.qualification.visit(this) match
@@ -95,35 +112,94 @@ final class Interpreter(
         throw Panic(s"unexpected qualification of type '${q.dynamicType}'")
 
   def visitApplication(n: ast.Application)(using context: Context): Value =
-    ???
+    val functionEntity = n.function.referredEntity.get.entity
+
+    val evaluatedArgs = n.arguments.map(arg => arg.visit(this))
+    val functionNode = functionEntity match {
+      case e: Entity.Builtin => builtin(e)
+      case b: Entity.Declaration => context.getLocal(b.name).getOrElse(getGlobal(b).get)
+    }
+    call(functionNode, evaluatedArgs)
 
   def visitPrefixApplication(n: ast.PrefixApplication)(using context: Context): Value =
-    ???
+    val operatorFunction = n.function.visit(this)
+
+    val operand = n.argument.visit(this)
+    call(operatorFunction, List(operand))
 
   def visitInfixApplication(n: ast.InfixApplication)(using context: Context): Value =
-    ???
+    val operatorFunction = n.function.visit(this)
+
+    val leftOperand = n.lhs.visit(this)
+    val rightOperand = n.rhs.visit(this)
+    call(operatorFunction, List(leftOperand, rightOperand))
 
   def visitConditional(n: ast.Conditional)(using context: Context): Value =
-    ???
+    val conditionValue = n.condition.visit(this)
+
+    conditionValue match {
+      case Value.Builtin(true, _) => n.successCase.visit(this) //evaluate success case
+      case Value.Builtin(false, _) => n.failureCase.visit(this) //evaluate failure case
+      case _ => throw new RuntimeException("Conditional expression did not evaluate to a boolean")
+    }
 
   def visitMatch(n: ast.Match)(using context: Context): Value =
     ???
+  /*
+    val scrutineeValue = n.scrutinee.visit(this)
+    for (matchCase <- n.cases) {
+    matches(scrutineeValue, matchCase.pattern) match {
+      case Some(bindings) =>
+        val newContext = context.pushing(bindings)
+        return matchCase.expression.visit(this)(using newContext)
+      case None =>
+    }
+  }
+throw Panic("No matching pattern found in match expression")*/
 
   def visitMatchCase(n: ast.Match.Case)(using context: Context): Value =
     unexpectedVisit(n)
 
   def visitLet(n: ast.Let)(using context: Context): Value =
-    ???
+    val bindingValue = n.binding.initializer.map(_.visit(this)).getOrElse(Value.unit)
+
+    val newFrame: Interpreter.Frame = Map(symbols.Name(None, n.binding.identifier) -> bindingValue)
+
+    val newContext = context.pushing(newFrame)
+
+    n.body.visit(this)(using newContext)
 
   def visitLambda(n: ast.Lambda)(using context: Context): Value =
     ???
 
   def visitParenthesizedExpression(n: ast.ParenthesizedExpression)(using context: Context): Value =
     // TODO
-    ???
+    n.inner.visit(this)
 
   def visitAscribedExpression(n: ast.AscribedExpression)(using context: Context): Value =
-    ???
+
+    val exprValue = n.inner.visit(this) //evaluate the expression
+    val exprType = n.inner.tpe(using given_TypedProgram)
+    val ascribedType = n.ascription.tpe(using given_TypedProgram)
+
+    n.operation match {
+      case ast.Typecast.Widen => exprValue //just return expression value
+
+      case ast.Typecast.NarrowUnconditionally =>
+        if (exprType.isSubtypeOf(ascribedType)) {
+         exprValue
+       } else {
+         throw Panic("type missmatch in narrowing")
+       }
+
+
+      case ast.Typecast.Narrow =>
+        if (exprType.isSubtypeOf(ascribedType)) {
+          Value.some(exprValue)
+        } else {
+          Value.none
+        }
+    }
 
   def visitTypeIdentifier(n: ast.TypeIdentifier)(using context: Context): Value =
     unexpectedVisit(n)
@@ -177,7 +253,7 @@ final class Interpreter(
             globals.put(e, computed)
             Some(computed)
 
-          case _ => ???
+          case _ => None
 
       case Some(Value.Poison) => throw Panic("initialization cycle")
       case v => v
@@ -186,18 +262,34 @@ final class Interpreter(
   private def call(f: Value, a: Seq[Value])(using context: Context): Value =
     f match
       case Value.Function(d, _) =>
-        ???
+        val newFrame = d.inputs.zip(a).map{ //frame for function local scope
+          case (param,argValue) => (param.nameDeclared,argValue)
+        }.toMap
 
+        val newContext = context.pushing(newFrame)
+        d.body.visit(this)(using newContext)
       case l: Value.Lambda =>
-        ???
+        val argFrame = l.inputs.zip(a).map{
+          case (param, argValue) => (param.nameDeclared,argValue)
+        }.toMap
+
+
+        val combinedFrame =l.captures ++ argFrame
+
+        val newContext =context.pushing(combinedFrame)
+
+
+        l.body.visit(this)(using newContext)
+
+
 
       case Value.BuiltinFunction("exit", _) =>
-        val Value.Builtin(status, _) = a.head : @unchecked
+        val Value.Builtin(status, _) = a.head: @unchecked
         throw Interpreter.Exit(status.asInstanceOf)
 
       case Value.BuiltinFunction("print", _) =>
         val text = a.head match
-          case Value.Builtin(s : String, _) => s.substring(1, s.length - 1) // Remove quotes
+          case Value.Builtin(s: String, _) => s.substring(1, s.length - 1) // Remove quotes
           case v => v.toString
         standardOutput.write(text.getBytes(UTF_8))
         Value.unit
@@ -266,29 +358,29 @@ final class Interpreter(
         throw Panic(s"value of type '${f.dynamicType}' is not a function")
 
   private def applyBuiltinUnary[T](
-      a: Seq[Value], r: Type.Builtin
-  )(f: T => T): Value.Builtin[T] =
-    val Value.Builtin(b, _) = a.head : @unchecked
+                                    a: Seq[Value], r: Type.Builtin
+                                  )(f: T => T): Value.Builtin[T] =
+    val Value.Builtin(b, _) = a.head: @unchecked
     Value.Builtin(f(b.asInstanceOf[T]), r)
 
   private def applyBuiltinBinary[T](
-      a: Seq[Value], r: Type.Builtin
-  )(f: (T, T) => T): Value.Builtin[T] =
-    val Value.Builtin(lhs, _) = a(0) : @unchecked
-    val Value.Builtin(rhs, _) = a(1) : @unchecked
+                                     a: Seq[Value], r: Type.Builtin
+                                   )(f: (T, T) => T): Value.Builtin[T] =
+    val Value.Builtin(lhs, _) = a(0): @unchecked
+    val Value.Builtin(rhs, _) = a(1): @unchecked
     Value.Builtin(f(lhs.asInstanceOf[T], rhs.asInstanceOf[T]), r)
 
   private def applyBuiltinComparison[T](
-      a: Seq[Value])(f: (T, T) => Boolean
-  ): Value.Builtin[Boolean] =
-    val Value.Builtin(lhs, _) = a(0) : @unchecked
-    val Value.Builtin(rhs, _) = a(1) : @unchecked
+                                         a: Seq[Value])(f: (T, T) => Boolean
+                                       ): Value.Builtin[Boolean] =
+    val Value.Builtin(lhs, _) = a(0): @unchecked
+    val Value.Builtin(rhs, _) = a(1): @unchecked
     Value.Builtin(f(lhs.asInstanceOf[T], rhs.asInstanceOf[T]), Type.Bool)
 
-  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`.  */
+  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`. */
   private def matches(
-      scrutinee: Value, pattern: ast.Pattern
-  )(using context: Context): Option[Interpreter.Frame] =
+                       scrutinee: Value, pattern: ast.Pattern
+                     )(using context: Context): Option[Interpreter.Frame] =
     pattern match
       case p: ast.Wildcard =>
         matchesWildcard(scrutinee, p)
@@ -301,34 +393,53 @@ final class Interpreter(
       case p: ast.ErrorTree =>
         unexpectedVisit(p)
 
-  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`.  */
+  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`. */
   private def matchesWildcard(
-      scrutinee: Value, pattern: ast.Wildcard
-  )(using context: Context): Option[Interpreter.Frame] =
-    ???
+                               scrutinee: Value, pattern: ast.Wildcard
+                             )(using context: Context): Option[Interpreter.Frame] =
+    Some(Map.empty)
 
-  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`.  */
+  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`. */
   private def matchesValue(
-      scrutinee: Value, pattern: ast.ValuePattern
-  )(using context: Context): Option[Interpreter.Frame] =
-    ???
+                            scrutinee: Value, pattern: ast.ValuePattern
+                          )(using context: Context): Option[Interpreter.Frame] =
+    scrutinee match {
+      case Value.Builtin(value, _) if value == pattern.value =>
+        Some(Map.empty)
+      case _ =>
+        None
+    }
 
-  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`.  */
+  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`. */
   private def matchesRecord(
-      scrutinee: Value, pattern: ast.RecordPattern
-  )(using context: Context): Option[Interpreter.Frame] =
+                             scrutinee: Value, pattern: ast.RecordPattern
+                           )(using context: Context): Option[Interpreter.Frame] =
     import Interpreter.Frame
     scrutinee match
       case s: Value.Record =>
         ???
+      /*
+  if (s.identifier == pattern.identifier && structurallyMatches(pattern.tpe(using given_TypedProgram))) {
+    val bindings = pattern.fields.zip(s.fields).flatMap {
+      case (patternField, recordField) =>
+        matches(recordField, patternField.value)(using context)
+          .getOrElse(throw Panic("Pattern matching failed"))
+    }.toMap
+    Some(bindings)
+  }*/
       case _ =>
         None
 
-  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`.  */
+  /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`. */
   private def matchesBinding(
-      scrutinee: Value, pattern: ast.Binding
-  )(using context: Context): Option[Interpreter.Frame] =
-    ???
+                              scrutinee: Value, pattern: ast.Binding
+                            )(using context: Context): Option[Interpreter.Frame] =
+    scrutinee match {
+      case v if pattern.tpe(using given_TypedProgram).isSubtypeOf(v.dynamicType) =>
+        Some(Map(symbols.Name(None, pattern.identifier) -> v))
+      case _ => None
+    }
+
 
 end Interpreter
 
@@ -339,7 +450,7 @@ object Interpreter:
 
   /** The local state of an Alpine interpreter.
    *
-   *  @param locals A stack of maps from local symbol to its value.
+   * @param locals A stack of maps from local symbol to its value.
    */
   final class Context(val locals: List[Frame] = List()):
 
@@ -359,6 +470,7 @@ object Interpreter:
           case local :: fs => local.get(n) match
             case Some(d) => Some(d)
             case _ => loop(fs)
+
       loop(locals)
 
     /** A map from visible local symbol to its value. */
