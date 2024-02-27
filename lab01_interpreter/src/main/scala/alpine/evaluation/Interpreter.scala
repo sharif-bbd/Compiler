@@ -3,12 +3,12 @@ package evaluation
 
 import alpine.ast
 import alpine.symbols
+import alpine.symbols.Type.Unit.structurallyMatches
 import alpine.symbols.{Entity, EntityReference, Type}
 import alpine.util.FatalError
 
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets.UTF_8
-
 import scala.annotation.tailrec
 import scala.collection.mutable
 import scala.util.control.NoStackTrace
@@ -156,14 +156,14 @@ final class Interpreter(
     n.body.visit(this)(using newContext)
 
   def visitLambda(n: ast.Lambda)(using context: Context): Value =
-    ???
-    /*
-    val lambdaBody = n.body.visit(this)
+
     val currentFrame = context.flattened
-    val captures = currentFrame.filterNot { case (name, _) => n.parameters.exists(_.identifier.name == name.identifier) }
-    val capturesFrame = captures.toMap
+    val captures = currentFrame.filterNot {
+      case (name, _) => n.inputs.exists(inp => inp.identifier == name.identifier) }
+    val capturesFrame = captures
     val newContext = context.pushing(capturesFrame)
-    Value.Lambda(n., lambdaBody, capturesFrame)(using newContext)*/
+    val lambdaBody = n.body.visit(this)(using newContext)
+    Value.Lambda(n.body,n.inputs, capturesFrame,lambdaBody.dynamicType)
   def visitParenthesizedExpression(n: ast.ParenthesizedExpression)(using context: Context): Value =
     // TODO
     n.inner.visit(this)
@@ -404,16 +404,18 @@ final class Interpreter(
     import Interpreter.Frame
     scrutinee match
       case s: Value.Record =>
-        ???
-      /*
-  if (s.identifier == pattern.identifier && structurallyMatches(pattern.tpe(using given_TypedProgram))) {
-    val bindings = pattern.fields.zip(s.fields).flatMap {
-      case (patternField, recordField) =>
-        matches(recordField, patternField.value)(using context)
-          .getOrElse(throw Panic("Pattern matching failed"))
-    }.toMap
-    Some(bindings)
-  }*/
+        val recordType = s.dynamicType
+        if(structurallyMatches(recordType)) {
+          val bindings = pattern.fields.zip(s.fields).flatMap {
+            case (patternField, recordField) =>
+              matches(recordField, patternField.value)(using context)
+                .getOrElse(throw Panic("Pattern matching failed"))
+          }.toMap
+          Some(bindings)
+        }else{
+          throw Panic("Pattern matching failed")
+        }
+        
       case _ =>
         None
 
