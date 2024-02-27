@@ -82,24 +82,15 @@ final class Interpreter(
     Value.Builtin(n.value, Type.String)
 
   def visitRecord(n: ast.Record)(using context: Context): Value =
-    val evaluatedFields = mutable.Map[String, Value]()
 
-    val fieldTypes = mutable.Map[String, symbols.Type]()
-
-    n.fields.foreach(field =>
-      val fieldName = field.label.getOrElse(throw new RuntimeException("Record field without a label"))
-      val fieldValue = field.value.visit(this)
-      evaluatedFields(fieldName) = fieldValue
-      fieldTypes(fieldName) = field.value.tpe(using given_TypedProgram)
-    )
-
-    val fieldValues = evaluatedFields.values.toList
-
-    val labeledFieldTypes = fieldTypes.map { case (name, typ) =>
-      symbols.Type.Labeled(Option(name), typ)
-    }.toList
-    val recordType = symbols.Type.Record(n.identifier, labeledFieldTypes)
-    Value.Record(n.identifier, fieldValues, recordType)
+    val fieldValues = n.fields.map(field => field.value.visit(this))
+    val recordType = n.tpe(using given_TypedProgram)
+    recordType match {
+      case recordType: symbols.Type.Record =>
+        Value.Record(n.identifier, fieldValues, recordType)
+      case _ =>
+        throw Panic("Expected a Record type for the record expression")
+    }
 
   def visitSelection(n: ast.Selection)(using context: Context): Value =
     n.qualification.visit(this) match
@@ -432,7 +423,7 @@ final class Interpreter(
                             )(using context: Context): Option[Interpreter.Frame] =
     scrutinee match {
       case v if pattern.tpe(using given_TypedProgram).isSubtypeOf(v.dynamicType) =>
-        Some(Map(symbols.Name(None, pattern.identifier) -> v))
+        Some(Map( pattern.nameDeclared -> v))
       case _ => None
     }
 
