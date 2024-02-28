@@ -156,14 +156,10 @@ final class Interpreter(
     n.body.visit(this)(using newContext)
 
   def visitLambda(n: ast.Lambda)(using context: Context): Value =
+    
+    Value.Lambda(n.body, n.inputs, context.flattened,n.tpe)
 
-    val currentFrame = context.flattened
-    val captures = currentFrame.filterNot {
-      case (name, _) => n.inputs.exists(inp => inp.identifier == name.identifier) }
-    val capturesFrame = captures
-    val newContext = context.pushing(capturesFrame)
-    val lambdaBody = n.body.visit(this)(using newContext)
-    Value.Lambda(n.body,n.inputs, capturesFrame,lambdaBody.dynamicType)
+
   def visitParenthesizedExpression(n: ast.ParenthesizedExpression)(using context: Context): Value =
     // TODO
     n.inner.visit(this)
