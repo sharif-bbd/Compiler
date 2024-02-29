@@ -136,16 +136,13 @@ final class Interpreter(
     }
 
   def visitMatch(n: ast.Match)(using context: Context): Value =
-    val scrutineeValue = n.scrutinee.visit(this)
-    for (matchCase <- n.cases) {
-      matches(scrutineeValue, matchCase.pattern) match {
-        case Some(bindings) =>
-          val newContext = context.pushing(bindings)
-          matchCase.visit(this)(using context)
-        case None =>
-      }
-    }
-    throw Panic("No matching pattern found in match expression")
+    val scrutinee = n.scrutinee.visit(this)
+
+    matches(scrutinee,n.cases.head.pattern) match
+      case Some(bindings) => n.cases.head.body.visit(this)(using context.pushing(bindings))
+      case None => visitMatch(n.copy(cases = n.cases.tail))
+
+
 
   def visitMatchCase(n: ast.Match.Case)(using context: Context): Value =
     unexpectedVisit(n)
@@ -386,12 +383,7 @@ final class Interpreter(
   private def matchesValue(
                             scrutinee: Value, pattern: ast.ValuePattern
                           )(using context: Context): Option[Interpreter.Frame] =
-    scrutinee match {
-      case Value.Builtin(value, _) if value == pattern.value =>
-        Some(Map.empty)
-      case _ =>
-        None
-    }
+    if scrutinee == pattern.value.visit(this)(using context) then Some(Map()) else None
 
   /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`. */
   private def matchesRecord(
@@ -400,29 +392,27 @@ final class Interpreter(
     import Interpreter.Frame
     scrutinee match
       case s: Value.Record =>
-        val recordType = s.dynamicType
-        if(structurallyMatches(recordType)) {
-          val bindings = pattern.fields.zip(s.fields).flatMap {
-            case (patternField, recordField) =>
-              matches(recordField, patternField.value)(using context)
-                .getOrElse(throw Panic("Pattern matching failed"))
-          }.toMap
-          Some(bindings)
+        if (Type.Record.from(pattern.tpe).get.structurallyMatches(s.dynamicType)){
+          val res = mutable.HashMap[symbols.Name,Value]()
+          for
+            i <- pattern.fields
+            j <- s.fields
+            k <- matches(j,i.value)
+          do res ++= k
+          Some(res.toMap)
         }else{
-          throw Panic("Pattern matching failed")
+          None
         }
-        
-      case _ =>
-        None
+      case _ => None
 
   /** Returns a map from binding in `pattern` to its value iff `scrutinee` matches `pattern`. */
   private def matchesBinding(
                               scrutinee: Value, pattern: ast.Binding
                             )(using context: Context): Option[Interpreter.Frame] =
-    scrutinee match {
-      case v if pattern.tpe(using given_TypedProgram).isSubtypeOf(v.dynamicType) =>
-        Some(Map( pattern.nameDeclared -> v))
-      case _ => None
+    if (pattern.tpe.isSubtypeOf(scrutinee.dynamicType)){
+      Some(Map(symbols.Name(None,pattern.identifier) -> scrutinee))
+    }else{
+      None
     }
 
 
