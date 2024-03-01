@@ -138,6 +138,7 @@ final class Interpreter(
   def visitMatch(n: ast.Match)(using context: Context): Value =
     val scrutinee = n.scrutinee.visit(this)
 
+
     matches(scrutinee,n.cases.head.pattern) match
       case Some(bindings) => n.cases.head.body.visit(this)(using context.pushing(bindings))
       case None => visitMatch(n.copy(cases = n.cases.tail))
@@ -394,13 +395,20 @@ final class Interpreter(
       case s: Value.Record =>
         if (Type.Record.from(pattern.tpe).get.structurallyMatches(s.dynamicType)){
           val res = mutable.HashMap[symbols.Name,Value]()
-          for
+          var isEmpty = true
+          for {
             i <- pattern.fields
             j <- s.fields
-            k <- matches(j,i.value)
-          do res ++= k
-          Some(res.toMap)
-        }else{
+          } {
+            matches(j, i.value) match {
+              case Some(bindings) =>
+                res ++= bindings
+                isEmpty = false
+              case None =>
+            }
+          }
+          if isEmpty then None else Some(res.toMap)
+        } else {
           None
         }
       case _ => None
