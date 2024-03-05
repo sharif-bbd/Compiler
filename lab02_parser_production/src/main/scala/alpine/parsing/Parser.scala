@@ -99,7 +99,6 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns an infix expression. */
   private[parsing] def infixExpression(precedence: Int = ast.OperatorPrecedence.min): Expression =
-
     ???
 
   /** Parses and returns an expression with an optional ascription. */
@@ -112,7 +111,23 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a compound expression. */
   private[parsing] def compoundExpression(): Expression =
-    ???
+    val primaryExpr = primaryExpression()
+
+    peek match {
+      case Some(Token(K.Dot, _)) =>
+        expect(K.Dot)
+        val field = identifier()
+        Selection(primaryExpr, field, field.site)
+  
+      case Some(Token(K.LParen, _)) =>
+        expect(K.LParen)
+        val args = commaSeparatedList(K.RParen.matches, expression)
+        expect(K.RParen)
+        inParentheses(expression)
+  
+      case _ =>
+        primaryExpr
+    }
 
   /** Parses and returns a term-level primary exression.
    *
@@ -183,8 +198,13 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a conditional expression. */
   private[parsing] def conditional(): Expression =
-    ???
-
+    expect(K.If)
+    val condition = expression()
+    expect(K.Then)
+    val success = expression()
+    expect(K.Else)
+    val failure = expression()
+    Conditional(condition,success,failure,condition.site)
   /** Parses and returns a match expression. */
   private[parsing] def mtch(): Expression =
     ???
@@ -223,7 +243,15 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a lambda or parenthesized term-level expression. */
   private def lambdaOrParenthesizedExpression(): Expression =
-    ???
+    peek match {
+      case Some(Token(K.LParen, _)) =>
+        
+        inParentheses(expression)
+
+      case _ =>
+        // Handle lambda expression
+        ???
+    }
 
   /** Parses and returns an operator. */
   private def operator(): Expression =
@@ -445,15 +473,24 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns `element` surrounded by a pair of parentheses. */
   private[parsing] def inParentheses[T](element: () => T): T =
-    ???
+    expect(K.LParen)
+    val parenthesizedExpression = element()
+    expect(K.RParen)
+    parenthesizedExpression
 
   /** Parses and returns `element` surrounded by a pair of braces. */
   private[parsing] def inBraces[T](element: () => T): T =
-    ???
+    expect(K.LBrace)
+    val bracedExpression = element()
+    expect(K.RBrace)
+    bracedExpression
 
   /** Parses and returns `element` surrounded by angle brackets. */
   private[parsing] def inAngles[T](element: () => T): T =
-    ???
+    expect(K.LAngle)
+    val angledExpression = element()
+    expect(K.RAngle)
+    angledExpression
 
   /** Parses and returns `element` surrounded by a `left` and `right`. */
   private[parsing] def delimited[T](left: Token.Kind, right: Token.Kind, element: () => T): T =
