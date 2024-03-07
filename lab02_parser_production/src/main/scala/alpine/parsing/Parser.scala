@@ -112,22 +112,31 @@ class Parser(val source: SourceFile):
   /** Parses and returns a compound expression. */
   private[parsing] def compoundExpression(): Expression =
     val primaryExpr = primaryExpression()
+    while (peek.exists(t => t.kind == K.Dot || t.kind == K.LParen)) {
+      take()
+      if (peek.exists(_.kind == K.Dot)) {
+        val selection = peek match {
+          case Some(Token(K.Integer, _)) =>
+            val index = expect(K.Integer).site.text
+            IntegerLiteral(index.toString, emptySiteAtLastBoundary)
+          case Some(Token(K.Identifier, _)) =>
+            val fieldName = expect(K.Identifier).site.text.toString
+            Identifier(fieldName, emptySiteAtLastBoundary)
+          case Some(Token(K.Operator,_)) =>
+            val operator = operatorIdentifier()
+            operator._1.getOrElse(ErrorTree(emptySiteAtLastBoundary))
+          case None =>
+            report(ExpectedTokenError(K.Identifier, emptySiteAtLastBoundary))
+            ErrorTree(emptySiteAtLastBoundary)
+        }
 
-    peek match {
-      case Some(Token(K.Dot, _)) =>
-        expect(K.Dot)
-        val field = identifier()
-        Selection(primaryExpr, field, field.site)
-  
-      case Some(Token(K.LParen, _)) =>
-        expect(K.LParen)
-        val args = commaSeparatedList(K.RParen.matches, expression)
-        expect(K.RParen)
-        inParentheses(expression)
-  
-      case _ =>
-        primaryExpr
+      } else if (peek.exists(_.kind == K.LParen)) {
+        val arguments = parenthesizedLabeledList(expression)
+        Application(primaryExpr, arguments, primaryExpr.site)
+      }
     }
+    primaryExpr
+
 
   /** Parses and returns a term-level primary exression.
    *
@@ -165,7 +174,7 @@ class Parser(val source: SourceFile):
         operator()
       case _ =>
         recover(ExpectedTree("expression", emptySiteAtLastBoundary), ErrorTree.apply)
-  
+
   /** Parses and returns an Boolean literal expression. */
   private[parsing] def booleanLiteral(): BooleanLiteral =
     val s = expect("Boolean literal", K.True | K.False)
@@ -180,13 +189,13 @@ class Parser(val source: SourceFile):
   private[parsing] def floatLiteral(): FloatLiteral =
     val s = expect(K.Float)
     FloatLiteral(s.site.text.toString, s.site)
-    
+
 
   /** Parses and returns a string literal expression. */
   private[parsing] def stringLiteral(): StringLiteral =
     val s = expect(K.String)
     StringLiteral(s.site.text.toString, s.site)
-    
+
 
   /** Parses and returns a term-level record expression. */
   private def recordExpression(): Record =
@@ -245,7 +254,7 @@ class Parser(val source: SourceFile):
   private def lambdaOrParenthesizedExpression(): Expression =
     peek match {
       case Some(Token(K.LParen, _)) =>
-        
+
         inParentheses(expression)
 
       case _ =>
@@ -374,6 +383,7 @@ class Parser(val source: SourceFile):
   /** Parses and returns a arrow or parenthesized type-level expression. */
   private[parsing] def arrowOrParenthesizedType(): Type =
     ???
+
 
   // --- Patterns -------------------------------------------------------------
 
