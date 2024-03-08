@@ -103,28 +103,42 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns an expression with an optional ascription. */
   private[parsing] def ascribed(): Expression =
-    ???
+    val prefixExpr = prefixExpression()
+
+    peek match {
+      case Some(Token(K.At, _)) =>
+        take()
+        val typeCast = typecast()
+        val targetType = tpe()
+        AscribedExpression(prefixExpr, typeCast, targetType, prefixExpr.site)
+
+      case _ =>
+        prefixExpr
+    }
 
   /** Parses and returns a prefix application. */
   private[parsing] def prefixExpression(): Expression =
-    ???
+    val p = peek
+    if p.get.kind.isOperatorPart then
+      if noWhitespaceBeforeNextToken then operator()
+      else compoundExpression()
+    else
+      compoundExpression()
 
   /** Parses and returns a compound expression. */
   private[parsing] def compoundExpression(): Expression =
-    val primaryExpr = primaryExpression()
+    var primaryExpr = primaryExpression()
     while (peek.exists(t => t.kind == K.Dot || t.kind == K.LParen)) {
       take()
       if (peek.exists(_.kind == K.Dot)) {
         val selection = peek match {
           case Some(Token(K.Integer, _)) =>
-            val index = expect(K.Integer).site.text
-            IntegerLiteral(index.toString, emptySiteAtLastBoundary)
+            primaryExpr = Selection(primaryExpr,identifier(),primaryExpr.site)
           case Some(Token(K.Identifier, _)) =>
-            val fieldName = expect(K.Identifier).site.text.toString
-            Identifier(fieldName, emptySiteAtLastBoundary)
+            primaryExpr = Selection(primaryExpr,identifier(),primaryExpr.site)
           case Some(Token(K.Operator,_)) =>
-            val operator = operatorIdentifier()
-            operator._1.getOrElse(ErrorTree(emptySiteAtLastBoundary))
+            val operator = operatorIdentifier()._2
+            primaryExpr = Selection(primaryExpr,Identifier(operator.text.toString,operator),primaryExpr.site)
           case None =>
             report(ExpectedTokenError(K.Identifier, emptySiteAtLastBoundary))
             ErrorTree(emptySiteAtLastBoundary)
@@ -132,7 +146,7 @@ class Parser(val source: SourceFile):
 
       } else if (peek.exists(_.kind == K.LParen)) {
         val arguments = parenthesizedLabeledList(expression)
-        Application(primaryExpr, arguments, primaryExpr.site)
+        primaryExpr = Application(primaryExpr, arguments, primaryExpr.site)
       }
     }
     primaryExpr
@@ -252,15 +266,7 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a lambda or parenthesized term-level expression. */
   private def lambdaOrParenthesizedExpression(): Expression =
-    peek match {
-      case Some(Token(K.LParen, _)) =>
-
-        inParentheses(expression)
-
-      case _ =>
-        // Handle lambda expression
-        ???
-    }
+    ???
 
   /** Parses and returns an operator. */
   private def operator(): Expression =
@@ -448,7 +454,7 @@ class Parser(val source: SourceFile):
   private[parsing] def parenthesizedLabeledList[T <: Tree](
       value: () => T
   ): List[Labeled[T]] =
-    ???
+    inParentheses(() => commaSeparatedList(_.kind == K.RParen, () => labeled(value)))
 
   /** Parses and returns a value optionally prefixed by a label.
    *
@@ -461,7 +467,22 @@ class Parser(val source: SourceFile):
   private[parsing] def labeled[T <: Tree](
       value: () => T
   ): Labeled[T] =
-    ???
+
+    val s = snapshot()
+
+    val label = peek match {
+      case Some(Token(K.Identifier, _)) =>
+        take().map(_.site.text.toString)
+      case Some(Token(K.Label, _)) =>
+        take().map(_.site.text.toString)
+      case _ =>
+        None
+    }
+
+    if (take(K.Colon).isEmpty) {
+      restore(s)
+    }
+    Labeled(label, value(),value.apply().site)
 
   /** Parses and returns a sequence of `element` separated by commas and delimited on the RHS  by a
    *  token satisfying `isTerminator`.
