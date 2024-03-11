@@ -486,7 +486,7 @@ class Parser(val source: SourceFile):
       fields: () => List[Field],
       make: (String, List[Field], SourceSpan) => T
   ): T =
-    expect(K.Label)
+    expect(K.Label).site.text.toString
     val identifier = expect(K.Identifier).site.text.toString
     val fieldsList = fields()
     make(identifier, fieldsList, emptySiteAtLastBoundary)
@@ -516,19 +516,21 @@ class Parser(val source: SourceFile):
 
     val s = snapshot()
 
-    val label = peek match {
-      case Some(Token(K.Identifier, _)) =>
-        take().map(_.site.text.toString)
-      case Some(Token(K.Label, _)) =>
-        take().map(_.site.text.toString)
+    peek match
+      case Some(token) if token.kind == K.Identifier =>
+        val label = take(K.Identifier).get.site.text.toString
+        expect(K.Colon)
+        val v = value()
+        Labeled(Some(label),v,token.site.extendedTo(v.site.end))
+      case Some(token) if token.kind == K.Label =>
+        val label = take(K.Label).get.site.text.toString
+        expect(K.Colon)
+        val v = value()
+        Labeled(Some(label), v, token.site.extendedTo(v.site.end))
       case _ =>
-        None
-    }
-    if (take(K.Colon).isEmpty) {
-      restore(s)
-    }
-    Labeled(label, value(),value.apply().site)
-
+        restore(s)
+        val v = value()
+        Labeled(None,v,v.site.extendedTo(v.site.end))
   /** Parses and returns a sequence of `element` separated by commas and delimited on the RHS  by a
    *  token satisfying `isTerminator`.
    */
