@@ -129,12 +129,32 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns an infix expression. */
   private[parsing] def infixExpression(precedence: Int = ast.OperatorPrecedence.min): Expression =
-    ???
+    def parse_expression(lhs : Expression,min_precedence : Int) : Expression =
+      var lookahead = peek
+      var l = lhs
+      while (lookahead.exists(_.kind.isOperatorPart)) {
+        val op1 = operatorIdentifier()._1.get
+        if(op1.precedence >= min_precedence){
+          var rhs = ascribed()
+          take()
+          lookahead = peek
+          while (lookahead.exists(_.kind.isOperatorPart)){
+            val op2 = operatorIdentifier()._1.get
+            if(op2.precedence >= op1.precedence){
+              val newPrecedence = if (op2.precedence > op1.precedence) op1.precedence + 1 else op1.precedence
+              rhs = parse_expression(rhs,newPrecedence)
+              lookahead = peek
+            }
+          }
+          l = InfixApplication(Identifier(op1.toString, lhs.site), lhs, rhs, lhs.site.extendedTo(rhs.site.end))
+        }
+      }
+      l
+    parse_expression(ascribed(),precedence)
 
   /** Parses and returns an expression with an optional ascription. */
   private[parsing] def ascribed(): Expression =
     val prefixExpr = prefixExpression()
-
     peek match {
       case Some(Token(K.At, _)) =>
         take()
