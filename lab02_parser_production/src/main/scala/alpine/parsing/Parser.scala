@@ -546,6 +546,11 @@ class Parser(val source: SourceFile):
         expect(K.Colon)
         val v = value()
         Labeled(Some(label), v, token.site.extendedTo(v.site.end))
+      case Some(token) if token.kind.isKeyword =>
+        val label = take(token.kind).get.site.text.toString
+        expect(K.Colon)
+        val v = value()
+        Labeled(Some(label),v, token.site.extendedTo(v.site.end))
       case _ =>
         restore(s)
         val v = value()
