@@ -136,7 +136,6 @@ class Parser(val source: SourceFile):
         val op1 = operatorIdentifier()._1.get
         if(op1.precedence >= min_precedence){
           var rhs = ascribed()
-          take()
           lookahead = peek
           while (lookahead.exists(_.kind.isOperatorPart)){
             val op2 = operatorIdentifier()._1.get
@@ -414,7 +413,19 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a type-level expression. */
   private[parsing] def tpe(): Type =
-    primaryType()
+  
+    val types = mutable.ListBuffer[Type](primaryType())
+    var token = peek
+    if(token.exists(_.kind == K.Operator)) {
+      while (token.exists(_.kind == K.Operator)) {
+        take()
+        types += primaryType()
+        token = peek
+      }
+      Sum(types.toList,types.toList.head.site)
+    }else{
+      types.head
+    }
 
 
   /** Parses and returns a type-level primary exression. */
@@ -540,16 +551,22 @@ class Parser(val source: SourceFile):
         val label = take(K.Identifier).get.site.text.toString
         expect(K.Colon)
         val v = value()
-        Labeled(Some(label),v,token.site.extendedTo(v.site.end))
+        Labeled(Some(label), v, token.site.extendedTo(v.site.end))
       case Some(token) if token.kind == K.Label =>
         val label = take(K.Label).get.site.text.toString
+        expect(K.Colon)
+        val v = value()
+        Labeled(Some(label), v, token.site.extendedTo(v.site.end))
+      case Some(token) if token.kind.isKeyword =>
+        val label = take(token.kind).get.site.text.toString
         expect(K.Colon)
         val v = value()
         Labeled(Some(label), v, token.site.extendedTo(v.site.end))
       case _ =>
         restore(s)
         val v = value()
-        Labeled(None,v,v.site.extendedTo(v.site.end))
+        Labeled(None, v, v.site.extendedTo(v.site.end))
+
   /** Parses and returns a sequence of `element` separated by commas and delimited on the RHS  by a
    *  token satisfying `isTerminator`.
    */
