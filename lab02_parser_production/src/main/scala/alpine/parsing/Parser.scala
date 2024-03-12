@@ -156,8 +156,7 @@ class Parser(val source: SourceFile):
   private[parsing] def ascribed(): Expression =
     val prefixExpr = prefixExpression()
     peek match {
-      case Some(Token(K.At, _)) =>
-        take()
+      case Some(Token(K.At, _)) | Some(Token(K.AtBang, _)) | Some(Token(K.AtQuery, _))=>
         val typeCast = typecast()
         val targetType = tpe()
         AscribedExpression(prefixExpr, typeCast, targetType, prefixExpr.site)
