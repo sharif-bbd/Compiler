@@ -422,11 +422,11 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a type-level expression. */
   private[parsing] def tpe(): Type =
-  
+
     val types = mutable.ListBuffer[Type](primaryType())
     var token = peek
-    if(token.exists(_.kind == K.Operator)) {
-      while (token.exists(_.kind == K.Operator)) {
+    if(token.exists(_.isOperatorPart("|"))){
+      while (token.exists(_.isOperatorPart("|"))) {
         take()
         types += primaryType()
         token = peek
