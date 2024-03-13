@@ -137,15 +137,21 @@ class Parser(val source: SourceFile):
         if(op1.precedence >= min_precedence){
           var rhs = ascribed()
           lookahead = peek
-          while (lookahead.exists(_.kind.isOperatorPart)){
+          var precedenceGreater= true
+          while (lookahead.exists(_.kind.isOperatorPart) && precedenceGreater){
+            val s = snapshot()
             val op2 = operatorIdentifier()._1.get
-            if(op2.precedence >= op1.precedence){
+            if(op2.precedence > op1.precedence){
               val newPrecedence = if (op2.precedence > op1.precedence) op1.precedence + 1 else op1.precedence
+              restore(s)
               rhs = parse_expression(rhs,newPrecedence)
               lookahead = peek
+            }else{
+              restore(s)
+              precedenceGreater = false
             }
           }
-          l = InfixApplication(Identifier(op1.toString, lhs.site), lhs, rhs, lhs.site.extendedTo(rhs.site.end))
+          l = InfixApplication(Identifier(op1.toString, lhs.site), l, rhs, lhs.site.extendedTo(rhs.site.end))
         }
       }
       l
@@ -159,7 +165,6 @@ class Parser(val source: SourceFile):
         val typeCast = typecast()
         val targetType = tpe()
         AscribedExpression(prefixExpr, typeCast, targetType, prefixExpr.site)
-
       case _ =>
         prefixExpr
     }
