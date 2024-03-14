@@ -79,7 +79,19 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a function declaration. */
   private[parsing] def function(): Function =
-    ???
+    expect(K.Fun)
+    val functionName = functionIdentifier()
+    val inputs = valueParameterList()
+    val output = if (peek.exists(_.kind == K.Arrow)) {
+      expect(K.Arrow)
+      Some(tpe())
+    } else {
+      None
+    }
+    expect(K.LBrace)
+    val body = expression()
+    expect(K.RBrace)
+    Function(functionName,Nil, inputs, output, body,emptySiteAtLastBoundary)
 
   /** Parses and returns the identifier of a function. */
   private def functionIdentifier(): String =
