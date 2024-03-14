@@ -134,7 +134,11 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a type declaration. */
   private[parsing] def typeDeclaration(): TypeDeclaration =
-    ???
+    expect(K.Type)
+    val typeName = identifier().value
+    expect(K.Eq)
+    val typeBody = tpe()
+    TypeDeclaration(typeName, Nil, typeBody, emptySiteAtLastBoundary)
 
   /** Parses and returns a list of parameter declarations in angle brackets. */
   //--- This is intentionally left in the handout /*+++ +++*/
