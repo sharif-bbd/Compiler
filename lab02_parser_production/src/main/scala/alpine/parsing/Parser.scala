@@ -60,14 +60,22 @@ class Parser(val source: SourceFile):
     expect(K.Let)
 
     val identifier = expect(K.Identifier).site.text.toString
-    val parameterType = taking(K.Colon, _ => tpe())
-    val initializer = if (initializerIsExpected) {
-      expect(K.Eq)
-      Some(expression())
+    val parameterType = if (peek.exists(_.kind == K.Colon)) {
+      expect(K.Colon)
+      Some(tpe())
     } else {
-      taking(K.Eq, _ => expression())
+      None
     }
+    val initializer =
+      if (initializerIsExpected && !peek.exists(_.kind == K.Eq)) {
+        report(SyntaxError("Expected initializer for binding", emptySiteAtLastBoundary))
+        None
+      } else {
+        taking(K.Eq, _ => expression())
+      }
+
     Binding(identifier, parameterType, initializer, emptySiteAtLastBoundary)
+
 
   /** Parses and returns a function declaration. */
   private[parsing] def function(): Function =
