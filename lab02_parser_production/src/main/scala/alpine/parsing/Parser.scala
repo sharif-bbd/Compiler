@@ -67,7 +67,7 @@ class Parser(val source: SourceFile):
       None
     }
     val initializer =
-      if (initializerIsExpected && !peek.exists(_.kind == K.Eq)) {
+      if ((initializerIsExpected && !peek.exists(_.kind == K.Eq)) ||(!initializerIsExpected && peek.exists(_.kind == K.Eq))) {
         report(SyntaxError("Expected initializer for binding", emptySiteAtLastBoundary))
         None
       } else {
@@ -352,11 +352,11 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a let expression. */
   private[parsing] def let(): Let =
-    val binding = bindingPattern()
+    val bind = binding()
     expect(K.LBrace)
     val expr = expression()
     expect(K.RBrace)
-    Let(binding, expr, expr.site)
+    Let(bind, expr, expr.site)
 
   /** Parses and returns a lambda or parenthesized term-level expression. */
   private def lambdaOrParenthesizedExpression(): Expression =
@@ -514,8 +514,7 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns the fields of a type-level record expression. */
   private def recordTypeFields(): List[Labeled[Type]] =
-    inParentheses(() =>
-      commaSeparatedList(_.kind == K.RParen, () => labeled(() => tpe()))).collect { case l: Labeled[Type] => l }
+     parenthesizedLabeledList(tpe)
 
   /** Parses and returns a arrow or parenthesized type-level expression. */
   private[parsing] def arrowOrParenthesizedType(): Type =
@@ -562,7 +561,7 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a binding pattern. */
   private def bindingPattern(): Binding =
-    binding(false)
+    binding(initializerIsExpected = false )
 
   /** Parses and returns a value pattern. */
   private def valuePattern(): ValuePattern =
@@ -587,11 +586,12 @@ class Parser(val source: SourceFile):
       fields: () => List[Field],
       make: (String, List[Field], SourceSpan) => T
   ): T =
-    expect(K.Label).site.text.toString
-    val identifier = expect(K.Identifier).site.text.toString
-    val fieldsList = fields()
-    make(identifier, fieldsList, emptySiteAtLastBoundary)
-
+    val name = expect(K.Label)
+    peek match
+      case Some(Token(K.LParen, _)) =>
+        make(name.site.text.toString, fields(), name.site)
+      case _ =>
+        make(name.site.text.toString, Nil, name.site)
   /** Parses and returns a parenthesized list of labeled value.
    *
    *  See also [[this.labeledList]].
