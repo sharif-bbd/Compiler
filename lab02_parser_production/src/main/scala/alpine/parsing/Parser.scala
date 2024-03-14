@@ -109,7 +109,7 @@ class Parser(val source: SourceFile):
 
     val identifier: String = expect(K.Identifier).site.text.toString
 
-    val parameterType: Option[Type] = if (peek.contains(K.Colon)) {
+    val parameterType: Option[Type] = if (peek.exists(_.kind == K.Colon)) {
       take()
       Some(tpe())
     } else {
@@ -281,7 +281,7 @@ class Parser(val source: SourceFile):
   /** Parses and returns a term-level record expression. */
   private def recordExpression(): Record =
     val label = expect(K.Label).site.text.toString
-    val fields = if (peek.contains(K.LParen)) recordExpressionFields() else List.empty
+    val fields = if (peek.exists(_.kind == K.LParen)) recordExpressionFields() else List.empty
     Record(label, fields, emptySiteAtLastBoundary)
 
   /** Parses and returns the fields of a term-level record expression. */
