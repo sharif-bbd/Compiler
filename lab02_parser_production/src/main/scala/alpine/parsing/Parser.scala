@@ -317,7 +317,10 @@ class Parser(val source: SourceFile):
     Conditional(condition,success,failure,condition.site)
   /** Parses and returns a match expression. */
   private[parsing] def mtch(): Expression =
-    ???
+    val check1 = expect(K.Match)
+    val exp = expression()
+    val body = matchBody()
+    Match(exp, body, exp.site)
 
   /** Parses and returns a the cases of a match expression. */
   private def matchBody(): List[Match.Case] =
@@ -357,7 +360,28 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a lambda or parenthesized term-level expression. */
   private def lambdaOrParenthesizedExpression(): Expression =
-    ???
+    val snap = snapshot()
+    expect(K.LParen)
+    if(!peek.exists(_.kind == K.RParen)){
+      take()
+    }
+    expect(K.RParen)
+    if(peek.exists(_.kind == K.Arrow) || peek.exists(_.kind == K.LBrace)){
+      restore(snap)
+      val parameters = valueParameterList()
+      var t : Option[Type] = None
+      if(peek.exists(_.kind == K.Arrow)){
+         t = Some(tpe())
+      }
+      Lambda(parameters,t, inBraces(() => expression()),emptySiteAtLastBoundary)
+    }else{
+      restore(snap)
+      ParenthesizedExpression( inParentheses(() => expression()),emptySiteAtLastBoundary)
+    }
+
+
+
+
 
   /** Parses and returns an operator. */
   private def operator(): Expression =
@@ -524,23 +548,26 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a wildcard pattern. */
   def wildcard(): Wildcard =
-    ???
+    val underscore = expect(K.Underscore)
+    Wildcard(underscore.site)
 
   /** Parses and returns a record pattern. */
   private def recordPattern(): RecordPattern =
-    ???
+    record(() => recordPatternFields(), (name, fields, site) => RecordPattern(name, fields, site))
+
 
   /** Parses and returns the fields of a record pattern. */
   private def recordPatternFields(): List[Labeled[Pattern]] =
-    ???
+    parenthesizedLabeledList(pattern)
 
   /** Parses and returns a binding pattern. */
   private def bindingPattern(): Binding =
-    ???
+    binding(false)
 
   /** Parses and returns a value pattern. */
   private def valuePattern(): ValuePattern =
-    ???
+    val e = expression()
+    ValuePattern(e, e.site)
 
   // --- Common trees ---------------------------------------------------------
 
