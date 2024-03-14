@@ -103,10 +103,12 @@ class Parser(val source: SourceFile):
   private[parsing] def parameter(): Declaration =
     val labelOpt: Option[String] = peek match {
       case Some(token) if token.kind.isKeyword => take().map(_.site.text.toString)
-      case Some(Token(K.Underscore, _)) => take().map(_ => "_")
+      case Some(Token(K.Identifier,_)) => Some(expect(K.Identifier).site.text.toString)
+      case Some(Token(K.Underscore, _)) =>
+        take()
+        None
       case _ => None
     }
-
     val identifier: String = expect(K.Identifier).site.text.toString
 
     val parameterType: Option[Type] = if (peek.exists(_.kind == K.Colon)) {
@@ -115,7 +117,6 @@ class Parser(val source: SourceFile):
     } else {
       None
     }
-
     Parameter(labelOpt, identifier, parameterType, emptySiteAtLastBoundary)
 
 
