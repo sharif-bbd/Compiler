@@ -479,7 +479,17 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a arrow or parenthesized type-level expression. */
   private[parsing] def arrowOrParenthesizedType(): Type =
-    ???
+    val s = snapshot()
+
+    val p = inParentheses(() => commaSeparatedList(_.kind == K.RParen, () => labeled(() => typeIdentifier())))
+    peek match
+      case Some(token) if token.kind == K.Arrow =>
+        expect(K.Arrow)
+        val v = typeIdentifier()
+        Arrow(p, v, v.site.extendedTo(v.site.end))
+      case _ =>
+        val v = p.last.value
+        ParenthesizedType(v, v.site.extendedTo(v.site.end))
 
 
   // --- Patterns -------------------------------------------------------------
@@ -565,26 +575,22 @@ class Parser(val source: SourceFile):
     val s = snapshot()
 
     peek match
-      case Some(token) if token.kind == K.Identifier =>
-        val label = take(K.Identifier).get.site.text.toString
-        expect(K.Colon)
-        val v = value()
-        Labeled(Some(label), v, token.site.extendedTo(v.site.end))
-      case Some(token) if token.kind == K.Label =>
-        val label = take(K.Label).get.site.text.toString
-        expect(K.Colon)
-        val v = value()
-        Labeled(Some(label), v, token.site.extendedTo(v.site.end))
-      case Some(token) if token.kind.isKeyword =>
+      case Some(token) if (token.kind == K.Identifier || token.kind.isKeyword) =>
         val label = take(token.kind).get.site.text.toString
-        expect(K.Colon)
-        val v = value()
-        Labeled(Some(label), v, token.site.extendedTo(v.site.end))
+        if (peek.get.kind == K.Colon) {
+          expect(K.Colon)
+          val v = value()
+          Labeled(Some(label), v, token.site.extendedTo(v.site.end))
+        } else {
+          restore(s)
+          val v = value()
+          Labeled(None, v, v.site.extendedTo(v.site.end))
+        }
       case _ =>
         restore(s)
         val v = value()
         Labeled(None, v, v.site.extendedTo(v.site.end))
-
+  
   /** Parses and returns a sequence of `element` separated by commas and delimited on the RHS  by a
    *  token satisfying `isTerminator`.
    */
