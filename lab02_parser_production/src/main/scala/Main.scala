@@ -22,6 +22,8 @@ private def parseCommandLineArguments(args: Seq[String]): (Action, driver.Config
     else if s.startsWith("-") then
       if s.drop(1) == "i" then
         action = Action.Interpret
+      else if s.drop(1) == "t" then
+        action = Action.TypeCheck
       else if s.drop(1) == "p" then
         action = Action.Parse
     else
@@ -53,4 +55,6 @@ private def withConfiguration[T](
   a match
     case Action.Parse =>
       val t = (withConfiguration(c, driver.parse))
-      println(t.get.declarations.toList)
+    case Action.TypeCheck =>
+      val t = withConfiguration(c, driver.typeCheck)
+      // if you want, you can print the type-checked tree here
