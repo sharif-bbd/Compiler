@@ -147,7 +147,14 @@ final class Typer(
     context.obligations.constrain(e, m)
 
   def visitApplication(e: ast.Application)(using context: Typer.Context): Type =
-    ???
+
+    checkedType(e.function) match
+      case Type.Arrow(inputs,output) =>
+        context.obligations.add(Constraint.Apply(Type.Arrow(inputs,output),inputs,output, Constraint.Origin(e.site)))
+        context.obligations.constrain(e, output)
+      case _ =>
+        context.obligations.constrain(e,freshTypeVariable())
+
 
   def visitPrefixApplication(e: ast.PrefixApplication)(using context: Typer.Context): Type =
     ???
