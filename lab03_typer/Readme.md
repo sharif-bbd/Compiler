@@ -87,7 +87,7 @@ During this lab, you will implement the type checking phase of the Alpine compil
 
 ### Supported language features
 
-The type checker supports all the features described in the language description (i.e., in this [file](language_desc.md)), EXCEPT the ***Type declarations***. This means, your typer does not have to handle the constructs of the form
+The type checker supports all the features described in the language description (i.e., in this [file]("language_desc.md")), EXCEPT the ***Type declarations***. This means, your typer does not have to handle the constructs of the form
 
 ```swift
 type T = Int
@@ -242,7 +242,7 @@ Below are listed hints about the visit functions you have to implement, along wi
 #### `visitRecord(e: ast.Record)`
 
 $$\frac{
-  \Gamma \vdash e_1 : \tau_1 \quad \Gamma e_2 : \tau_  \Gamma \quad \dots \quad \Gamma e_n \quad \Gamma: \tau_n
+  \Gamma \vdash e_1 : \tau_1 \quad \Gamma e_2 : \tau_2 \quad \dots \quad \Gamma \vdash e_n : \tau_n
 }{
   \char"23 a(a_1: e_1, a_2: e_2, \dots, a_n: e_n): \char"23 a(a_1: \tau_1, a_2: \tau_2, \dots, a_n :\tau_n)
 }$$
@@ -313,6 +313,8 @@ $$
   \Gamma \vdash \text{if } e_1 \text{ then } e_2 \text{ else } e_3: \tau
 }
 $$
+
+_Note_: you should consider the trivial case as well. If the two branches have the same type, then there is no need for a fresh variable.
 
 #### `visitLet(e: ast.Let)`
 
