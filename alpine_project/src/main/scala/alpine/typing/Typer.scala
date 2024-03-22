@@ -130,7 +130,7 @@ final class Typer(
 
   def visitRecord(e: ast.Record)(using context: Typer.Context): Type =
     val fieldTypes = e.fields.map {l =>
-      Type.Labeled(l.label,checkedType(l.value))
+      Type.Labeled(l.label,l.value.visit(this))
     }
     val recordType = Type.Record(e.identifier,fieldTypes)
     context.obligations.constrain(e, recordType)
@@ -148,7 +148,7 @@ final class Typer(
 
   def visitApplication(e: ast.Application)(using context: Typer.Context): Type =
 
-    checkedType(e.function) match
+    e.function.visit(this) match
       case Type.Arrow(inputs,output) =>
         context.obligations.add(Constraint.Apply(Type.Arrow(inputs,output),inputs,output, Constraint.Origin(e.site)))
         context.obligations.constrain(e, output)
@@ -157,13 +157,36 @@ final class Typer(
 
 
   def visitPrefixApplication(e: ast.PrefixApplication)(using context: Typer.Context): Type =
-    ???
+
+    val argumentType = e.argument.visit(this)
+    checkedType(e.function) match
+      case Type.Arrow(input, output) if input.size == 1 =>
+        context.obligations.add(Constraint.Apply(Type.Arrow(input,output),input,output, Constraint.Origin(e.site)))
+        context.obligations.constrain(e, output)
+      case _ =>
+        context.obligations.constrain(e,freshTypeVariable())
+
 
   def visitInfixApplication(e: ast.InfixApplication)(using context: Typer.Context): Type =
-    ???
+    checkedType(e.function) match
+      case Type.Arrow(input, output) if input.size == 2 =>
+        context.obligations.add(Constraint.Apply(Type.Arrow(input, output), input, output, Constraint.Origin(e.site)))
+        context.obligations.constrain(e, output)
+      case _ =>
+        context.obligations.constrain(e, freshTypeVariable())
 
   def visitConditional(e: ast.Conditional)(using context: Typer.Context): Type =
-    ???
+
+    checkInstanceOf(e.condition,Type.Bool)
+    val successBranch = e.successCase.visit(this)
+    val failureBranch = e.failureCase.visit(this)
+    if(context.obligations.add(Constraint.Equal(successBranch,failureBranch,Constraint.Origin(e.site))))
+      then context.obligations.constrain(e,successBranch)
+    else
+      val t = freshTypeVariable()
+      context.obligations.add(Constraint.Subtype(successBranch,t,Constraint.Origin(e.successCase.site)))
+      context.obligations.add(Constraint.Subtype(failureBranch, t, Constraint.Origin(e.failureCase.site)))
+      context.obligations.constrain(e,t)
 
   def visitMatch(e: ast.Match)(using context: Typer.Context): Type =
     // Scrutinee is checked in isolation.
