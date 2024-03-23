@@ -2,10 +2,11 @@ package alpine
 package typing
 
 import alpine.ast
+import alpine.ast.Typecast
 import alpine.symbols
 import alpine.symbols.{Entity, Type}
 import alpine.typing.Typer.Context
-import alpine.util.{Memo, FatalError}
+import alpine.util.{FatalError, Memo}
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -147,33 +148,51 @@ final class Typer(
     context.obligations.constrain(e, m)
 
   def visitApplication(e: ast.Application)(using context: Typer.Context): Type =
+    val funType = e.function.visit(this)
 
-    e.function.visit(this) match
-      case Type.Arrow(inputs,output) =>
-        context.obligations.add(Constraint.Apply(Type.Arrow(inputs,output),inputs,output, Constraint.Origin(e.site)))
-        context.obligations.constrain(e, output)
-      case _ =>
-        context.obligations.constrain(e,freshTypeVariable())
+    val outputType = funType match
+      case Type.Arrow(input, output) => output
+      case _ => freshTypeVariable()
+    context.obligations.add(
+      Constraint.Apply(
+        funType,
+        e.arguments.map(labeledExpr => Type.Labeled(labeledExpr.label, labeledExpr.value.visit(this))),
+        outputType,
+        Constraint.Origin(e.site))
+    )
+    context.obligations.constrain(e, outputType)
 
 
   def visitPrefixApplication(e: ast.PrefixApplication)(using context: Typer.Context): Type =
+    val funType = e.function.visit(this)
+    val outputType = funType match
+      case Type.Arrow(input, output) => output
+      case _ => freshTypeVariable()
 
-    val argumentType = e.argument.visit(this)
-    checkedType(e.function) match
-      case Type.Arrow(input, output) if input.size == 1 =>
-        context.obligations.add(Constraint.Apply(Type.Arrow(input,output),input,output, Constraint.Origin(e.site)))
-        context.obligations.constrain(e, output)
-      case _ =>
-        context.obligations.constrain(e,freshTypeVariable())
+    context.obligations.add(
+      Constraint.Apply(
+        funType,
+        List(Type.Labeled(None,e.argument.visit(this))),
+        outputType,
+        Constraint.Origin(e.site))
+    )
+    context.obligations.constrain(e, outputType)
 
 
   def visitInfixApplication(e: ast.InfixApplication)(using context: Typer.Context): Type =
-    checkedType(e.function) match
-      case Type.Arrow(input, output) if input.size == 2 =>
-        context.obligations.add(Constraint.Apply(Type.Arrow(input, output), input, output, Constraint.Origin(e.site)))
-        context.obligations.constrain(e, output)
-      case _ =>
-        context.obligations.constrain(e, freshTypeVariable())
+    val funType = e.function.visit(this)
+
+    val outputType = funType match
+      case Type.Arrow(input, output) => output
+      case _ => freshTypeVariable()
+    context.obligations.add(
+      Constraint.Apply(
+        funType,
+        List(Type.Labeled(None, e.lhs.visit(this)),Type.Labeled(None,e.rhs.visit(this))),
+        outputType,
+        Constraint.Origin(e.site))
+    )
+    context.obligations.constrain(e, outputType)
 
   def visitConditional(e: ast.Conditional)(using context: Typer.Context): Type =
 
@@ -213,7 +232,7 @@ final class Typer(
       e,
       innerContext =>
        e.binding.visit(this)(using innerContext)
-       innerContext.obligations.constrain(e,  e.body.visit(this)(using innerContext))
+       innerContext.obligations.constrain(e,e.body.visit(this)(using innerContext))
     )
 
   def visitLambda(e: ast.Lambda)(using context: Typer.Context): Type =
@@ -242,11 +261,16 @@ final class Typer(
       case Type.Error =>
         Type.Error
       case ascription =>
-        ???
+        e.operation match
+          case Typecast.Narrow =>
+            Type.option(e.inner.visit(this))
+          case Typecast.NarrowUnconditionally | Typecast.Widen=>
+            checkInstanceOf(e.inner, ascription)
+            ascription
     context.obligations.constrain(e, result)
 
   def visitTypeIdentifier(e: ast.TypeIdentifier)(using context: Typer.Context): Type =
-      ???
+    ???
 
   def visitRecordType(e: ast.RecordType)(using context: Typer.Context): Type =
     ???
