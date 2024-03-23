@@ -362,7 +362,7 @@ class Parser(val source: SourceFile):
   private def lambdaOrParenthesizedExpression(): Expression =
     val snap = snapshot()
     expect(K.LParen)
-    if(!peek.exists(_.kind == K.RParen)){
+    while(!peek.exists(_.kind == K.RParen)){
       take()
     }
     expect(K.RParen)

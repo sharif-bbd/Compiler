@@ -208,15 +208,34 @@ final class Typer(
     unexpectedVisit(e)
 
   def visitLet(e: ast.Let)(using context: Typer.Context): Type =
-    ???
+    assignScopeName(e)(using context)
+    context.inScope(
+      e,
+      innerContext =>
+       e.binding.visit(this)(using innerContext)
+       innerContext.obligations.constrain(e,  e.body.visit(this)(using innerContext))
+    )
 
   def visitLambda(e: ast.Lambda)(using context: Typer.Context): Type =
-    ???
+    assignScopeName(e)(using context)
+    val inputs = computedUncheckedInputTypes(e.inputs)
+    val output = e.output match
+      case Some(out) => out.visit(this)
+      case None => freshTypeVariable()
+    context.inScope(
+      e,
+      innerContext =>
+        innerContext.obligations.add(
+          Constraint.Subtype(e.body.visit(this)(using innerContext), output, Constraint.Origin(e.body.site))
+        )
+
+    )
+    context.obligations.constrain(e, Type.Arrow(inputs, output))
 
   def visitParenthesizedExpression(
       e: ast.ParenthesizedExpression
   )(using context: Typer.Context): Type =
-    ???
+    context.obligations.constrain(e, e.inner.visit(this))
 
   def visitAscribedExpression(e: ast.AscribedExpression)(using context: Typer.Context): Type =
     val result = evaluateTypeTree(e.ascription) match
