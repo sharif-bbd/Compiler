@@ -94,16 +94,21 @@ final class Typer(
     assignNameDeclared(d)
 
     val t: Type = context.inScope(d, { (inner) =>
-      val outputType = memoizedUncheckedType(d, computedUncheckedType(_))
-      inner.obligations.add(
-        Constraint.Subtype(
-          d.body.visit(this)(using inner),
-          outputType,
-          Constraint.Origin(d.body.site)
-        )
-      )
-      outputType
+      val funType = memoizedUncheckedType(d,d => computedUncheckedType(d))
+      funType match
+        case Type.Arrow(inputs,output) =>
+          checkInstanceOf(d.body, output)
+          inner.obligations.add(
+            Constraint.Subtype(
+              d.body.visit(this)(using inner),
+              funType,
+              Constraint.Origin(d.body.site)
+            )
+          )
+        case _ => Type.Error
+      funType
     })
+
 
     val result = if t(Type.Flags.HasError) then Type.Error else t
     properties.checkedType.put(d, result)
