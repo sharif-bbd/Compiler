@@ -210,8 +210,11 @@ final class Typer(
     checkInstanceOf(e.condition,Type.Bool)
     val successBranch = e.successCase.visit(this)
     val failureBranch = e.failureCase.visit(this)
-    if(context.obligations.add(Constraint.Equal(successBranch,failureBranch,Constraint.Origin(e.site))))
-      then context.obligations.constrain(e,successBranch)
+    val branchesHaveSameType = successBranch.isSubtypeOf(failureBranch) && failureBranch.isSubtypeOf(successBranch)
+    if branchesHaveSameType
+      then
+      context.obligations.add(Constraint.Equal(successBranch,failureBranch,Constraint.Origin(e.site)))
+      context.obligations.constrain(e,successBranch)
     else
       val t = freshTypeVariable()
       context.obligations.add(Constraint.Subtype(successBranch,t,Constraint.Origin(e.successCase.site)))
