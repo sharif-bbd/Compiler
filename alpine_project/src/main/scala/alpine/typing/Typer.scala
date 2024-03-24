@@ -457,7 +457,7 @@ final class Typer(
   private def evaluateFieldIndex(s: ast.IntegerLiteral): Option[Int] =
     try
       Some(s.value.toInt)
-    catch _ =>
+    catch case _ =>
       report(TypeError(s"'${s.value}' is not a valid record field index", s.site))
       None
 

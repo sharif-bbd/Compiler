@@ -373,6 +373,7 @@ class TyperTests extends munit.FunSuite:
 
   test("Default return type of function is unit (2pts)") {
     // This should be taken care of by computedUncheckedType
+
     shouldPassTypeCheck("""
     fun f() { #unit }
     let refToF: () -> #unit = f

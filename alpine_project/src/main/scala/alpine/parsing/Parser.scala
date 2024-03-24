@@ -524,7 +524,7 @@ class Parser(val source: SourceFile):
     peek match
       case Some(token) if token.kind == K.Arrow =>
         expect(K.Arrow)
-        val v = typeIdentifier()
+        val v = primaryType()
         Arrow(p, v, v.site.extendedTo(v.site.end))
       case _ =>
         val v = p.last.value
