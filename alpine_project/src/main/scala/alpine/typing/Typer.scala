@@ -94,7 +94,15 @@ final class Typer(
     assignNameDeclared(d)
 
     val t: Type = context.inScope(d, { (inner) =>
-      ???
+      val outputType = memoizedUncheckedType(d, computedUncheckedType(_))
+      inner.obligations.add(
+        Constraint.Subtype(
+          d.body.visit(this)(using inner),
+          outputType,
+          Constraint.Origin(d.body.site)
+        )
+      )
+      outputType
     })
 
     val result = if t(Type.Flags.HasError) then Type.Error else t
@@ -130,9 +138,7 @@ final class Typer(
     context.obligations.constrain(e, Type.String)
 
   def visitRecord(e: ast.Record)(using context: Typer.Context): Type =
-    val fieldTypes = e.fields.map {l =>
-      Type.Labeled(l.label,l.value.visit(this))
-    }
+    val fieldTypes = e.fields.map(l => Type.Labeled(l.label,l.value.visit(this)))
     val recordType = Type.Record(e.identifier,fieldTypes)
     context.obligations.constrain(e, recordType)
 
@@ -142,9 +148,14 @@ final class Typer(
     
     e.selectee match
       case s: ast.Identifier =>
-        ???
+        context.obligations.add(
+          Constraint.Member(q, m, s.value, e.qualification, Constraint.Origin(e.site)))
       case s: ast.IntegerLiteral =>
-        ???
+        evaluateFieldIndex(s) match
+          case Some(i) =>
+            context.obligations.add(Constraint.Member(q, m, i, e.qualification, Constraint.Origin(e.site)))
+          case None =>
+            context.obligations.constrain(e, Type.Error)
     context.obligations.constrain(e, m)
 
   def visitApplication(e: ast.Application)(using context: Typer.Context): Type =
@@ -263,24 +274,37 @@ final class Typer(
       case ascription =>
         e.operation match
           case Typecast.Narrow =>
-            Type.option(e.inner.visit(this))
+            context.obligations.constrain(e.inner,freshTypeVariable())
           case Typecast.NarrowUnconditionally | Typecast.Widen=>
             checkInstanceOf(e.inner, ascription)
             ascription
     context.obligations.constrain(e, result)
 
   def visitTypeIdentifier(e: ast.TypeIdentifier)(using context: Typer.Context): Type =
-    ???
+    lookupUnqualified(e.value).map(entity => entity.tpe) match
+      case Nil =>
+        report(TypeError("undefined type", e.site))
+        Type.Error
+      case Type.Meta(tpe) :: Nil =>
+        tpe
+      case _ =>
+        report(TypeError("ambiguous use of the type", e.site))
+        Type.Error
+
 
   def visitRecordType(e: ast.RecordType)(using context: Typer.Context): Type =
-    ???
+    Type.Record(
+      e.identifier,
+      e.fields.map(labeledType => Type.Labeled(labeledType.label, evaluateTypeTree(labeledType.value))))
 
   def visitTypeApplication(e: ast.TypeApplication)(using context: Typer.Context): Type =
     throw FatalError("unsupported generic parameters", e.site)
 
   def visitArrow(e: ast.Arrow)(using context: Typer.Context): Type =
-    ???
-
+    Type.Arrow(
+      e.inputs.map(labeledType => Type.Labeled(labeledType.label, evaluateTypeTree(labeledType.value))),
+      evaluateTypeTree(e.output)
+    )
 
   def visitSum(e: ast.Sum)(using context: Typer.Context): Type =
     var hasErrorMember = false
@@ -306,16 +330,18 @@ final class Typer(
     if hasErrorMember then Type.Error else partialResult
 
   def visitParenthesizedType(e: ast.ParenthesizedType)(using context: Typer.Context): Type =
-    ???
+    context.obligations.constrain(e,evaluateTypeTree(e.inner))
 
   def visitValuePattern(p: ast.ValuePattern)(using context: Typer.Context): Type =
     context.obligations.constrain(p, p.value.visit(this))
 
   def visitRecordPattern(p: ast.RecordPattern)(using context: Typer.Context): Type =
-    ???
+    val fieldTypes = p.fields.map(l => Type.Labeled(l.label, l.value.visit(this)))
+    val recordType = Type.Record(p.identifier, fieldTypes)
+    context.obligations.constrain(p, recordType)
 
   def visitWildcard(p: ast.Wildcard)(using context: Typer.Context): Type =
-    ???
+    context.obligations.constrain(p,freshTypeVariable())
 
   def visitTypeDeclaration(e: ast.TypeDeclaration)(using context: Typer.Context): Type =
     report(TypeError("type declarations are not supported", e.site))
