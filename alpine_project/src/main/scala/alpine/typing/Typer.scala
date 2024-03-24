@@ -274,7 +274,8 @@ final class Typer(
       case ascription =>
         e.operation match
           case Typecast.Narrow =>
-            context.obligations.constrain(e.inner,freshTypeVariable())
+            checkInstanceOf(e.inner, ascription)
+            Type.option(e.inner.visit(this))
           case Typecast.NarrowUnconditionally | Typecast.Widen=>
             checkInstanceOf(e.inner, ascription)
             ascription
