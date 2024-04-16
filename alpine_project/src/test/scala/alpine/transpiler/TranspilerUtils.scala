@@ -88,7 +88,7 @@ object TranspilerUtils:
         val typed = { val typer = typing.Typer(); typer.check(parsed) }
         val transpiled = codegen.ScalaPrinter(typed).transpile()
         Right(writeScalaFile("main", transpiled))
-      catch (e: Throwable) =>
+      catch case (e: Throwable) =>
         Left(BackendError(e))
 
     /** Compiles the given Scala files in the temporary directory */

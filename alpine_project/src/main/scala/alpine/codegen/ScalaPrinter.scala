@@ -2,6 +2,7 @@ package alpine
 package codegen
 
 import alpine.ast
+import alpine.ast.Typecast.{Narrow, NarrowUnconditionally, Widen}
 import alpine.symbols
 import alpine.symbols.Entity.builtinModule
 import alpine.util.FatalError
@@ -28,13 +29,27 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
 
   /** Writes the Scala declaration of `t` in `context`. */
   private def emitRecord(t: symbols.Type.Record)(using context: Context): Unit =
- 
-      ??? 
+    if(t.fields.isEmpty){
+      context.output ++= s"case object ${transpiledType(t)}"
+    }else{
+      emitNonSingletonRecord(t)
+    }
+    context.output ++= "\n"
+
 
   /** Writes the Scala declaration of `t`, which is not a singleton, in `context`. */
   private def emitNonSingletonRecord(t: symbols.Type.Record)(using context: Context): Unit =
- 
-      ??? 
+    val fields = t.fields.zipWithIndex.map { case (field, index) =>
+      val label = field.label.getOrElse("$"+ s"$index")
+      s"$label: ${transpiledType(field.value)}"
+    }
+    context.output ++= s"case class ${transpiledType(t)}"
+
+
+    context.output ++= "("
+    context.output.appendCommaSeparated(fields) {(o, a) => o ++= a }
+    context.output ++= ")"
+
 
   /** Returns the transpiled form of `t`. */
   private def transpiledType(t: symbols.Type)(using context: Context): String =
@@ -65,8 +80,8 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
       "Unit"
     else
       context.registerUse(t)
-      val d = discriminator(t)
-      if t.fields.isEmpty then s"${d}.type" else d
+      val d = if t.identifier == "#some" then "Some" else discriminator(t)
+      if t.fields.isEmpty then s"${d}_None" else d
 
   /** Returns the transpiled form of `t`. */
   private def transpiledArrow(t: symbols.Type.Arrow)(using context: Context): String =
@@ -113,7 +128,12 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
 
   /** Returns a string uniquely identifiyng `t` for use as a discriminator in a mangled name. */
   private def discriminator(t: symbols.Type.Record): String =
-    ???
+    val b = StringBuilder("Rec")
+    for i <- t.fields do
+      b++= "_"
+      b++= i.label.getOrElse("")
+      b++= discriminator(i.value)
+    b.toString
 
   /** Returns a string uniquely identifiyng `t` for use as a discriminator in a mangled name. */
   private def discriminator(t: symbols.Type.Arrow): String =
@@ -134,7 +154,7 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
     e match
       case symbols.Entity.Builtin(n, _) => s"alpine_rt.builtin.${n.identifier}"
       case symbols.Entity.Declaration(n, t) => scalaized(n) + discriminator(t)
-      case _: symbols.Entity.Field => ???
+      case symbols.Entity.Field(r,index) => discriminator(r.fields(index).value)
 
   /** Returns a string representation of `n` suitable for use as a Scala identifier. */
   private def scalaized(n: symbols.Name): String =
@@ -151,7 +171,7 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
     // Bindings represent global symbols at top-level.
     if context.isTopLevel then
       context.output ++= "  " * context.indentation
-
+      
       // If the is the entry point if it's called "main".
       if n.identifier == "main" then
         context.output ++= "@main def $entry"
@@ -159,8 +179,10 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
         context.output ++= s"private val "
         context.output ++= transpiledReferenceTo(n.entityDeclared)
 
+      /* commented : original version has these 2 lines
       context.output ++= ": "
       context.output ++= transpiledType(n.tpe)
+      */
 
       // Top-level bindings must have an initializer.
       assert(n.initializer.isDefined)
@@ -173,7 +195,10 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
 
     // Bindings at local-scope are used in let-bindings and pattern cases.
     else
-      context.output ++= s"val "
+      // added this if to make match case work
+      if(n.initializer.isDefined){
+        context.output ++= s"val "
+      }
       context.output ++= transpiledReferenceTo(n.entityDeclared)
       context.output ++= ": "
       context.output ++= transpiledType(n.tpe)
@@ -224,13 +249,19 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
     context.output ++= n.value
 
   override def visitRecord(n: ast.Record)(using context: Context): Unit =
-    ???
+    val t = n.tpe.asInstanceOf[symbols.Type.Record]
+    context.typesToEmit + t
+    context.output ++=transpiledRecord(t)
+    context.output ++= "("
+    context.output.appendCommaSeparated(n.fields) { (o, a) => a.value.visit(this) }
+    context.output ++= ")"
+
 
   override def visitSelection(n: ast.Selection)(using context: Context): Unit =
     n.qualification.visit(this)
     n.referredEntity match
       case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
-        context.output ++= ".$" + e.index
+        context.output ++= s".productElement(${e.index}).asInstanceOf[${transpiledType(e.whole.fields(e.index).value)}]"
       case _ =>
         unexpectedVisit(n.selectee)
 
@@ -263,10 +294,18 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
     n.failureCase.visit(this)
 
   override def visitMatch(n: ast.Match)(using context: Context): Unit =
-    ???
+    n.scrutinee.visit(this)
+    context.output ++= " match {\n"
+    for mc <- n.cases do
+      visitMatchCase(mc)
+    context.output ++= "}"
 
   override def visitMatchCase(n: ast.Match.Case)(using context: Context): Unit =
-    ???
+    context.output ++= "  case "
+    n.pattern.visit(this)
+    context.output ++= " => "
+    n.body.visit(this)
+    context.output ++= "\n"
 
   override def visitLet(n: ast.Let)(using context: Context): Unit =
     // Use a block to uphold lexical scoping.
@@ -293,7 +332,6 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
     n.body.visit(this)
     context.output ++= "): "
     context.output ++= transpiledType(symbols.Type.Arrow.from(n.tpe).get.output)
-
   override def visitParenthesizedExpression(
       n: ast.ParenthesizedExpression
   )(using context: Context): Unit =
@@ -304,7 +342,34 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
   override def visitAscribedExpression(
       n: ast.AscribedExpression
   )(using context: Context): Unit =
-    ???
+    n.operation match
+      case Widen =>
+        n.inner.visit(this)
+        context.output ++= s".asInstanceOf[${transpiledType(n.ascription.tpe)}]"
+      case NarrowUnconditionally =>
+        context.output ++= "try {\n"
+        context.output ++= "  " * context.indentation
+        n.inner.visit(this)
+        context.output ++= s".asInstanceOf[${transpiledType(n.ascription.tpe)}]"
+        context.output ++= "\n"
+        context.output ++= "} catch { "
+        context.output ++= "  " * context.indentation
+        context.output ++= "case e : ClassCastException => \"panic\" }"
+
+      case Narrow =>
+        context.output ++=  "if ("
+        n.inner.visit(this)
+        context.output ++= s".isInstanceOf[${transpiledType(n.ascription.tpe)}]"
+        context.output ++= ") "
+        context.output ++= "Some("
+        n.inner.visit(this)
+        context.output ++= s".asInstanceOf[${transpiledType(n.ascription.tpe)}]"
+        context.output ++= ")"
+        context.output ++= " else "
+        context.output ++= "Rec_None"
+
+
+
 
   override def visitTypeIdentifier(n: ast.TypeIdentifier)(using context: Context): Unit =
     unexpectedVisit(n)
@@ -325,13 +390,21 @@ final class ScalaPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrin
     unexpectedVisit(n)
 
   override def visitValuePattern(n: ast.ValuePattern)(using context: Context): Unit =
-    ???
+    n.value.visit(this)
 
   override def visitRecordPattern(n: ast.RecordPattern)(using context: Context): Unit =
-    ???
-
+    if(n.fields.isEmpty){
+      context.output ++= s"${transpiledType(n.tpe)}"
+    }
+    else{
+    context.output ++= s"${transpiledType(n.tpe)}("
+    context.output.appendCommaSeparated(n.fields) { (o, a) =>
+      a.value.visit(this)
+    }
+    context.output ++= ")"
+    }
   override def visitWildcard(n: ast.Wildcard)(using context: Context): Unit =
-    ???
+    context.output ++= "_"
 
   override def visitError(n: ast.ErrorTree)(using context: Context): Unit =
     unexpectedVisit(n)

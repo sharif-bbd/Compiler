@@ -154,11 +154,11 @@ final class Typer(
     e.selectee match
       case s: ast.Identifier =>
         context.obligations.add(
-          Constraint.Member(q, m, s.value, e.qualification, Constraint.Origin(e.site)))
+          Constraint.Member(q, m, s.value, e, Constraint.Origin(e.site)))
       case s: ast.IntegerLiteral =>
         evaluateFieldIndex(s) match
           case Some(i) =>
-            context.obligations.add(Constraint.Member(q, m, i, e.qualification, Constraint.Origin(e.site)))
+            context.obligations.add(Constraint.Member(q, m, i, e, Constraint.Origin(e.site)))
           case None =>
             context.obligations.constrain(e, Type.Error)
     context.obligations.constrain(e, m)

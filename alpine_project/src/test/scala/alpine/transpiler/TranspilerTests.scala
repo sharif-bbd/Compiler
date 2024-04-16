@@ -8,6 +8,7 @@ class TranspilerTests extends munit.FunSuite:
   var runner: Option[TranspilerUtils.Runner] = None
   
   val inputFileAlpineTests = "./src/test/res/transpiler/test_cases.al"
+  val inputFileAlpineUniqueTests = "./src/test/res/transpiler/unique_test.al"
 
   /**
     * Parses the given file and run the obtained test cases
