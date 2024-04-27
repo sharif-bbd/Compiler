@@ -6,7 +6,7 @@ import scala.util.{Success, Failure}
 
 /** The operation to perform on the compiler's input. */
 private enum Action:
-  case Parse, TypeCheck, Transpile, Compile, Interpret
+  case Parse, TypeCheck, Transpile, Compile, Interpret, Run, Debug
 
 /** Parses a the action to run and its configuration from the command line arguments `args`.*/
 private def parseCommandLineArguments(args: Seq[String]): (Action, driver.Configuration) =
@@ -23,6 +23,8 @@ private def parseCommandLineArguments(args: Seq[String]): (Action, driver.Config
       s.drop(1).toString match
         case "i" => action = Action.Interpret
         case "s" => action = Action.Transpile
+        case "r" => action = Action.Run
+        case "d" => action = Action.Debug
         case _  => ()
     else
       inputPaths = inputPaths.prepended(s.toString)
@@ -60,4 +62,8 @@ private def withConfiguration[T](
     case Action.Transpile =>
       withConfiguration(c, driver.transpile)
     case Action.Compile =>
-      withConfiguration(c, driver.typeCheck)
+      withConfiguration(c, driver.compile)
+    case Action.Run =>
+      withConfiguration(c.copy(nodeDebug = false), driver.run)
+    case Action.Debug =>
+      withConfiguration(c.copy(nodeDebug = true), driver.run)

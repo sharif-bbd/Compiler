@@ -29,6 +29,18 @@ def transpile(configuration: Configuration): Unit =
   val output = transpiler.transpile()
   println(output)
 
+/** Rewrites the input program in Scala using the given `configuration`. */
+def compile(configuration: Configuration): Unit =
+  val typedSyntax = typeCheck(configuration)
+  val cg = codegen.CodeGenerator(typedSyntax)
+  val module = cg.compile()
+  wasm.Wasm.writeToFile("output.wat", module)
+  wasm.Wasm.watToWasm("output.wat", "output.wasm")
+
+def run(configuration: Configuration): Unit =
+  compile(configuration)
+  if configuration.nodeDebug then wasm.Wasm.debugNode("output.wasm") else wasm.Wasm.runNode("output.wasm")
+
 /** Interpret the input program with the given `configuration` and returns its exit status. */
 def interpret(configuration: Configuration): Int =
   val typedSyntax = typeCheck(configuration)
