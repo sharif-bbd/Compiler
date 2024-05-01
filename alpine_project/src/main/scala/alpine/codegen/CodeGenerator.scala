@@ -2,10 +2,12 @@ package alpine
 package codegen
 
 import alpine.symbols
-import alpine.wasm.WasmTree._
-import alpine.ast._
+import alpine.wasm.WasmTree.*
+import alpine.ast.*
 import alpine.wasm.Wasm
+
 import scala.collection.mutable
+import scala.collection.mutable.ListBuffer
 
 /** The transpilation of an Alpine program to Scala. */
 final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGenerator.Context, Unit]:
@@ -16,61 +18,55 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
 
   /** Returns a WebAssembly program equivalent to `syntax`. */
   /** THIS IS AN EXAMPLE MODULE! */
-  def compile(): Module =  Module(
-    List(
-      ImportFromModule("api", "print", "print", List(I32), None),
-      ImportFromModule("api", "print", "fprint", List(F32), None),
-      ImportFromModule("api", "print-char", "print-char", List(I32), None),
-      ImportFromModule("api", "show-memory", "show-memory", List(I32), None),
-      ImportMemory("api", "mem", 100)
-    ),
-    List(
-      FunctionDefinition("heap-test", body =
-        List(
-          IConst(0),
-          IConst(0xdeadbeef),
-          IStore,
-          IConst(0),
-          Call("show-memory")
-        )
-      ),
-      FunctionDefinition("local-test", locals = List(F32, F32), returnType = Some(F32), body =
-        List(
-          FConst(3.14),
-          LocalSet(0),
-          FConst(1.67),
-          LocalSet(1),
-          LocalGet(0),
-          LocalGet(1),
-          FSub
-        )
-      ),
-      MainFunction(
-        List(
-          IConst(1),
-          IConst(2),
-          IAdd,
-          Call("print"),
-          Call("heap-test"),
-          Call("local-test"),
-          Call("fprint"),
-          IConst(0x41),
-          Call("print-char"),
+  def compile(): Module =
 
-          FConst(42) // Return
+    given c: Context = Context()
+    syntax.declarations.foreach(_.visit(this))
+    Module(
+      List(
+        ImportFromModule("api", "print", "print", List(I32), None),
+        ImportFromModule("api", "print", "fprint", List(F32), None),
+        ImportFromModule("api", "print-char", "print-char", List(I32), None),
+        ImportFromModule("api", "show-memory", "show-memory", List(I32), None),
+        ImportMemory("api", "mem", 100)
+      ),
+      List(
+        FunctionDefinition("heap-test", body =
+          List(
+            IConst(0),
+            IConst(0xdeadbeef),
+            IStore,
+            IConst(0),
+            Call("show-memory")
+          )
         ),
-        Some(F32)
+        FunctionDefinition("local-test", locals = List(F32, F32), returnType = Some(F32), body =
+          List(
+            FConst(3.14),
+            LocalSet(0),
+            FConst(1.67),
+            LocalSet(1),
+            LocalGet(0),
+            LocalGet(1),
+            FSub
+          )
+        ),
+        MainFunction(
+          c.output.toList,
+          None
+        )
       )
-    )
   )
 
   // Tree visitor methods
 
   /** Visits `n` with state `a`. */
-  def visitLabeled[T <: Tree](n: Labeled[T])(using a: Context): Unit = ???
+  def visitLabeled[T <: Tree](n: Labeled[T])(using a: Context): Unit =
+    n.value.visit(this)(using a)
 
   /** Visits `n` with state `a`. */
-  def visitBinding(n: Binding)(using a: Context): Unit = ???
+  def visitBinding(n: Binding)(using a: Context): Unit =
+    n.initializer.get.visit(this)(using a)
 
   /** Visits `n` with state `a`. */
   def visitTypeDeclaration(n: TypeDeclaration)(using a: Context): Unit = ???
@@ -82,16 +78,23 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitParameter(n: Parameter)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
-  def visitIdentifier(n: Identifier)(using a: Context): Unit = ???
+  def visitIdentifier(n: Identifier)(using a: Context): Unit =
+    a.output.addOne(Call(n.value))
+  
 
   /** Visits `n` with state `a`. */
-  def visitBooleanLiteral(n: BooleanLiteral)(using a: Context): Unit = ???
+  def visitBooleanLiteral(n: BooleanLiteral)(using a: Context): Unit =
+    a.output.addOne(
+      IConst(if (n.value == "true") 1 else 0)
+    )
 
   /** Visits `n` with state `a`. */
-  def visitIntegerLiteral(n: IntegerLiteral)(using a: Context): Unit = ???
+  def visitIntegerLiteral(n: IntegerLiteral)(using a: Context): Unit =
+    a.output.addOne(IConst(n.value.toInt))
 
   /** Visits `n` with state `a`. */
-  def visitFloatLiteral(n: FloatLiteral)(using a: Context): Unit = ???
+  def visitFloatLiteral(n: FloatLiteral)(using a: Context): Unit =
+    a.output.addOne(FConst(n.value.toFloat))
 
   /** Visits `n` with state `a`. */
   def visitStringLiteral(n: StringLiteral)(using a: Context): Unit = ???
@@ -103,7 +106,11 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitSelection(n: Selection)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
-  def visitApplication(n: Application)(using a: Context): Unit = ???
+  def visitApplication(n: Application)(using a: Context): Unit =
+    n.arguments.foreach(labeledExpr => labeledExpr.value.visit(this)(using a))
+    n.function.visit(this)(using a)
+
+
 
   /** Visits `n` with state `a`. */
   def visitPrefixApplication(n: PrefixApplication)(using a: Context): Unit = ???
@@ -177,10 +184,10 @@ object CodeGenerator:
     def typesToEmit: Set[symbols.Type.Record] = _typesToEmit.toSet
 
     /** The (partial) result of the transpilation. */
-    private var _output = StringBuilder()
+    private var _output = ListBuffer[Instruction]()
 
     /** The (partial) result of the transpilation. */
-    def output: StringBuilder = _output
+    def output: ListBuffer[Instruction] = _output
 
     /** `true` iff the transpiler is processing top-level symbols. */
     private var _isTopLevel = true
@@ -193,7 +200,7 @@ object CodeGenerator:
       if t != symbols.Type.Unit then _typesToEmit.add(t)
 
     /** Returns `action` applied on `this` where `output` has been exchanged with `o`. */
-    def swappingOutputBuffer[R](o: StringBuilder)(action: Context => R): R =
+    def swappingOutputBuffer[R](o: ListBuffer[Instruction])(action: Context => R): R =
       val old = _output
       _output = o
       try action(this) finally _output = old
@@ -203,3 +210,6 @@ object CodeGenerator:
       var tl = _isTopLevel
       _isTopLevel = false
       try action(this) finally _isTopLevel = tl
+
+  end Context
+

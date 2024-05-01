@@ -6,16 +6,18 @@ class TranspilerTests extends munit.FunSuite:
   private val lineSeparator = System.lineSeparator()
 
   var runner: Option[TranspilerUtils.Runner] = None
-  
+
   val inputFileAlpineTests = "./src/test/res/transpiler/test_cases.al"
-  val inputFileAlpineUniqueTests = "./src/test/res/transpiler/unique_test.al"
+
+  // Uncomment this line to run the codegen tests with the transpiler
+  // val inputFileAlpineTests2 = "./src/test/res/codegen/test_cases.al"
 
   /**
-    * Parses the given file and run the obtained test cases
-    *
-    * @param filename
-    * @param loc
-    */
+   * Parses the given file and run the obtained test cases
+   *
+   * @param filename
+   * @param loc
+   */
   def runTestsFromFile(filename: String)(implicit loc: munit.Location): Unit = {
     val lines: List[String] = Source.fromFile(filename).getLines().toList
     val tests = TranspilerUtils.parseTests(lines)
@@ -46,3 +48,6 @@ class TranspilerTests extends munit.FunSuite:
     runner.foreach(_.delete)
 
   runTestsFromFile(inputFileAlpineTests)
+
+// Uncomment this line to run the codegen tests with the transpiler
+// runTestsFromFile(inputFileAlpineTests2)

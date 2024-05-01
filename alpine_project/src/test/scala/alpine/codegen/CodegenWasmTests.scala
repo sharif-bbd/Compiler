@@ -8,6 +8,7 @@ class CodegenWasmTests extends munit.FunSuite:
   var runner: Option[CodegenWasmUtils.Runner] = None
   
   val inputFileAlpineTests = "./src/test/res/codegen/test_cases.al"
+  val inputFileAlpineUniqueTests = "./src/test/res/codegen/unique_test.al"
 
   /**
     * Parses the given file and run the obtained test cases
