@@ -21,7 +21,12 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def compile(): Module =
 
     given c: Context = Context()
-    syntax.declarations.foreach(_.visit(this))
+
+    for (declaration <- syntax.declarations) {
+      declaration.visit(this)
+    }
+    val mainFunction = MainFunction(c.output.toList,None)
+    val moduleFunctions = c.functionDefinitions.map(f => emitFunctionDeclaration(f))
     Module(
       List(
         ImportFromModule("api", "print", "print", List(I32), None),
@@ -30,34 +35,31 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
         ImportFromModule("api", "show-memory", "show-memory", List(I32), None),
         ImportMemory("api", "mem", 100)
       ),
-      List(
-        FunctionDefinition("heap-test", body =
-          List(
-            IConst(0),
-            IConst(0xdeadbeef),
-            IStore,
-            IConst(0),
-            Call("show-memory")
-          )
-        ),
-        FunctionDefinition("local-test", locals = List(F32, F32), returnType = Some(F32), body =
-          List(
-            FConst(3.14),
-            LocalSet(0),
-            FConst(1.67),
-            LocalSet(1),
-            LocalGet(0),
-            LocalGet(1),
-            FSub
-          )
-        ),
-        MainFunction(
-          c.output.toList,
-          None
-        )
-      )
+      moduleFunctions.toList :+ mainFunction
   )
 
+  private def convertToWasmType(symbolType : symbols.Type): WasmType =
+    val wasmType = symbolType match
+      case symbols.Type.Int => I32
+      case symbols.Type.Float => F32
+    wasmType.asInstanceOf[WasmType]
+
+  private def emitFunctionDeclaration(n : ast.Function)(using a: Context): FunctionDefinition = 
+    a.output.clear()
+    n.body.visit(this)(using a)
+    val params =  n.inputs.map{ param =>
+      convertToWasmType(param.tpe)
+    }
+    val returnType = convertToWasmType(n.output.get.tpe)
+    FunctionDefinition(
+      n.identifier,
+      params,
+      params,
+      Some(returnType),
+      a.output.toList
+    )
+    
+    
   // Tree visitor methods
 
   /** Visits `n` with state `a`. */
@@ -72,15 +74,16 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitTypeDeclaration(n: TypeDeclaration)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
-  def visitFunction(n: ast.Function)(using a: Context): Unit = ???
+  def visitFunction(n: ast.Function)(using a: Context): Unit =
+    a.functionDefinitions.addOne(n)
 
   /** Visits `n` with state `a`. */
   def visitParameter(n: Parameter)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
   def visitIdentifier(n: Identifier)(using a: Context): Unit =
-    a.output.addOne(Call(n.value))
-  
+    {}
+
 
   /** Visits `n` with state `a`. */
   def visitBooleanLiteral(n: BooleanLiteral)(using a: Context): Unit =
@@ -107,8 +110,19 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
 
   /** Visits `n` with state `a`. */
   def visitApplication(n: Application)(using a: Context): Unit =
+    val funIdentifier = n.function.referredEntity.get.entity.name.identifier
     n.arguments.foreach(labeledExpr => labeledExpr.value.visit(this)(using a))
-    n.function.visit(this)(using a)
+    if(funIdentifier == "print"){
+      a.output.last match
+        case IConst(value) => a.output.addOne(Call("print"))
+        case FConst(value) => a.output.addOne(Call("fprint"))
+        case Call(f) =>
+          a.functionDefinitions.find(fun => fun.identifier == f).get.output.get.tpe match
+            case symbols.Type.Int => a.output.addOne(Call("print"))
+            case symbols.Type.Float => a.output.addOne(Call("fprint"))
+    }else{
+      a.output.addOne(Call(funIdentifier))
+    }
 
 
 
@@ -119,7 +133,23 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitInfixApplication(n: InfixApplication)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
-  def visitConditional(n: Conditional)(using a: Context): Unit = ???
+  def visitConditional(n: Conditional)(using a: Context): Unit =
+    val currentContext = a.output.clone()
+    a.output.clear()
+    n.successCase.visit(this)(using a)
+    val successCaseInstructions = a.output.toList
+    a.output.clear()
+    n.failureCase.visit(this)(using a)
+    val failureCaseInstructions= a.output.toList
+    a.output.clear()
+    a.output ++= currentContext
+    n.condition.visit(this)(using a)
+    a.output.addOne(
+        If_void(
+        successCaseInstructions,
+        Some(failureCaseInstructions)
+      )
+    )
 
   /** Visits `n` with state `a`. */
   def visitMatch(n: Match)(using a: Context): Unit = ???
@@ -134,7 +164,8 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitLambda(n: Lambda)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
-  def visitParenthesizedExpression(n: ParenthesizedExpression)(using a: Context): Unit = ???
+  def visitParenthesizedExpression(n: ParenthesizedExpression)(using a: Context): Unit =
+    n.inner.visit(this)(using a)
 
   /** Visits `n` with state `a`. */
   def visitAscribedExpression(n: AscribedExpression)(using a: Context): Unit = ???
@@ -177,11 +208,6 @@ object CodeGenerator:
    */
   final class Context(var indentation: Int = 0):
 
-    /** The types that must be emitted in the program. */
-    private var _typesToEmit = mutable.Set[symbols.Type.Record]()
-
-    /** The types that must be emitted in the program. */
-    def typesToEmit: Set[symbols.Type.Record] = _typesToEmit.toSet
 
     /** The (partial) result of the transpilation. */
     private var _output = ListBuffer[Instruction]()
@@ -189,27 +215,9 @@ object CodeGenerator:
     /** The (partial) result of the transpilation. */
     def output: ListBuffer[Instruction] = _output
 
-    /** `true` iff the transpiler is processing top-level symbols. */
-    private var _isTopLevel = true
+    private var _functionsToDefine= ListBuffer[ast.Function]()
+    def functionDefinitions : ListBuffer[ast.Function] = _functionsToDefine
 
-    /** `true` iff the transpiler is processing top-level symbols. */
-    def isTopLevel: Boolean = _isTopLevel
-
-    /** Adds `t` to the set of types that are used by the transpiled program. */
-    def registerUse(t: symbols.Type.Record): Unit =
-      if t != symbols.Type.Unit then _typesToEmit.add(t)
-
-    /** Returns `action` applied on `this` where `output` has been exchanged with `o`. */
-    def swappingOutputBuffer[R](o: ListBuffer[Instruction])(action: Context => R): R =
-      val old = _output
-      _output = o
-      try action(this) finally _output = old
-
-    /** Returns `action` applied on `this` where `isTopLevel` is `false`. */
-    def inScope[R](action: Context => R): R =
-      var tl = _isTopLevel
-      _isTopLevel = false
-      try action(this) finally _isTopLevel = tl
 
   end Context
 
