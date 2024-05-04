@@ -4,6 +4,7 @@ package codegen
 import alpine.symbols
 import alpine.wasm.WasmTree.*
 import alpine.ast.*
+import alpine.symbols.Type
 import alpine.wasm.Wasm
 
 import scala.collection.mutable
@@ -72,10 +73,23 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
       n.initializer.get match
         case ast.Record(_,_,_) =>
           val recordType = n.tpe.asInstanceOf[symbols.Type.Record]
-          a.record.put(n.identifier, (a.memoryIndex, recordType.fields))
+          val fields = recordType.fields.map { labeledType =>
+            labeledType.value match {
+              case symbols.Type.Record(identifier,fields) =>
+                val (k,v) = a.record.find{case(key,value) => value._2.structurallyMatches(symbols.Type.Record(identifier,fields))}.get
+                labeledType.copy(value = symbols.Type.Record(k,fields))
+              case _ =>
+                labeledType
+            }
+          }
+          a.record.put(n.identifier, (a.memoryIndex, recordType.copy(fields = fields)))
         case _ =>
     }
     n.initializer.get.visit(this)(using a)
+    if (a.record.contains("#")) {
+      val entry = a.record.remove("#").get
+      a.record.put(n.identifier, entry)
+    }
 
   /** Visits `n` with state `a`. */
   def visitTypeDeclaration(n: TypeDeclaration)(using a: Context): Unit = ???
@@ -113,10 +127,18 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitRecord(n: Record)(using a: Context): Unit =
     for(labeledExpr <- n.fields){
       a.output.addOne(IConst(a.memoryIndex))
+      labeledExpr.value match {
+        case Identifier(value, _) =>
+          if (a.record.keys.exists(key => key == value)) {
+            a.output.remove(a.output.length - 1)
+          }
+        case _ =>
+      }
       labeledExpr.value.visit(this)(using a)
       labeledExpr.value.tpe match
         case symbols.Type.Int => a.output.addOne(IStore)
         case symbols.Type.Float => a.output.addOne(FStore)
+        case _ =>
       a.memoryIndex += 4;
     }
 
@@ -132,13 +154,19 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
         case _ =>
     n.qualification match
       case ast.Identifier(identifier,_) =>
-        val (recordIndex,recordFields) = a.record(identifier)
+        var (recordIndex,recordType) = a.record(identifier)
         n.selectee match
           case IntegerLiteral(value,site) =>
-            val (field,fieldIndex) = recordFields.zipWithIndex.find(field => field._2 == value.toInt).get
-            loadFromMemory(recordIndex + fieldIndex*4,field.value)
+            var (field, fieldIndex) = recordType.fields.zipWithIndex.find { case (_, index) => index == value.toInt }.get
+            field.value match {
+              case record: Type.Record =>
+                a.record.put("#",(fieldIndex,record))
+              case _ =>
+                loadFromMemory(recordIndex + fieldIndex*4,field.value)
+            }
+
           case Identifier(value,site) =>
-            val (field,fieldIndex) = recordFields.zipWithIndex.find(field => field._1.label.getOrElse("") == value).get
+            val (field,fieldIndex) = recordType.fields.zipWithIndex.find(field => field._1.label.getOrElse("") == value).get
             loadFromMemory(recordIndex + fieldIndex*4,field.value)
       case _ =>
 
@@ -269,9 +297,9 @@ object CodeGenerator:
     private var _functionsToDefine= ListBuffer[ast.Function]()
     def functionDefinitions : ListBuffer[ast.Function] = _functionsToDefine
 
-    val _record: mutable.Map[String, (Int, List[symbols.Type.Labeled])] = mutable.Map[String, (Int, List[symbols.Type.Labeled])]()
+    val _record: mutable.Map[String, (Int, symbols.Type.Record)] = mutable.Map[String, (Int, symbols.Type.Record)]()
 
-    def record: mutable.Map[String, (Int, List[symbols.Type.Labeled])] = _record
+    def record: mutable.Map[String, (Int, symbols.Type.Record)] = _record
 
 
 
