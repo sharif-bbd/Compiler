@@ -68,6 +68,7 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
 
   /** Visits `n` with state `a`. */
   def visitBinding(n: Binding)(using a: Context): Unit =
+
     n.initializer.get.visit(this)(using a)
 
   /** Visits `n` with state `a`. */
@@ -103,10 +104,41 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitStringLiteral(n: StringLiteral)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
-  def visitRecord(n: Record)(using a: Context): Unit = ???
+  def visitRecord(n: Record)(using a: Context): Unit =
+    val recordSize = n.fields.size * 4 //record size in bytes
+    val recordType = n.tpe.asInstanceOf[symbols.Type.Record]
+    a.record.put(recordType.identifier, (a.memoryIndex, recordType.fields))
+    for(labeledExpr <- n.fields){
+      a.output.addOne(IConst(a.memoryIndex))
+      labeledExpr.value.visit(this)(using a)
+      labeledExpr.value.tpe match
+        case symbols.Type.Int => a.output.addOne(IStore)
+        case symbols.Type.Float => a.output.addOne(FStore)
+      a.memoryIndex += 4;
+    }
+
+
 
   /** Visits `n` with state `a`. */
-  def visitSelection(n: Selection)(using a: Context): Unit = ???
+  def visitSelection(n: Selection)(using a: Context): Unit =
+    def loadFromMemory(indexMemory : Int,typeToLoad : symbols.Type) : Unit =
+      a.output.addOne(IConst(indexMemory))
+      convertToWasmType(typeToLoad) match
+        case I32 => a.output.addOne(ILoad)
+        case F32 => a.output.addOne(FLoad)
+        case _ =>
+    n.qualification.referredEntity.get.tpe match
+      case symbols.Type.Record(identifier, fields) =>
+        val (recordIndex,recordFields) = a.record(identifier)
+        n.selectee match
+          case IntegerLiteral(value,site) =>
+            val (field,fieldIndex) = recordFields.zipWithIndex.find(field => field._2 == value.toInt).get
+            loadFromMemory(recordIndex + fieldIndex*4,field.value)
+          case Identifier(value,site) =>
+            val (field,fieldIndex) = recordFields.zipWithIndex.find(field => field._1.label.getOrElse("") == value).get
+            loadFromMemory(recordIndex + fieldIndex*4,field.value)
+      case _ =>
+
 
   /** Visits `n` with state `a`. */
   def visitApplication(n: Application)(using a: Context): Unit =
@@ -116,10 +148,14 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
       a.output.last match
         case IConst(value) => a.output.addOne(Call("print"))
         case FConst(value) => a.output.addOne(Call("fprint"))
-        case Call(f) =>
+        case Call(f)  =>
           a.functionDefinitions.find(fun => fun.identifier == f).get.output.get.tpe match
             case symbols.Type.Int => a.output.addOne(Call("print"))
             case symbols.Type.Float => a.output.addOne(Call("fprint"))
+        case ILoad =>
+          a.output.addOne(Call("print"))
+        case FLoad =>
+          a.output.addOne(Call("fprint"))
     }else{
       a.output.addOne(Call(funIdentifier))
     }
@@ -130,7 +166,16 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
   def visitPrefixApplication(n: PrefixApplication)(using a: Context): Unit = ???
 
   /** Visits `n` with state `a`. */
-  def visitInfixApplication(n: InfixApplication)(using a: Context): Unit = ???
+  def visitInfixApplication(n: InfixApplication)(using a: Context): Unit =
+    n.lhs.visit(this)(using a)
+    n.rhs.visit(this)(using a)
+    if(n.function.value == "=="){
+      a.output.addOne(IEq)
+    }
+    if(n.function.value == "+"){
+      a.output.addOne(IAdd)
+    }
+
 
   /** Visits `n` with state `a`. */
   def visitConditional(n: Conditional)(using a: Context): Unit =
@@ -206,7 +251,7 @@ object CodeGenerator:
    *
    *  @param indentation The current identation to add before newlines.
    */
-  final class Context(var indentation: Int = 0):
+  final class Context(var memoryIndex: Int = 0):
 
 
     /** The (partial) result of the transpilation. */
@@ -217,6 +262,12 @@ object CodeGenerator:
 
     private var _functionsToDefine= ListBuffer[ast.Function]()
     def functionDefinitions : ListBuffer[ast.Function] = _functionsToDefine
+
+    val _record: mutable.Map[String, (Int, List[symbols.Type.Labeled])] = mutable.Map[String, (Int, List[symbols.Type.Labeled])]()
+
+    def record: mutable.Map[String, (Int, List[symbols.Type.Labeled])] = _record
+
+
 
 
   end Context
