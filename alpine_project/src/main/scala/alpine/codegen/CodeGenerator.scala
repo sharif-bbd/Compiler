@@ -68,7 +68,13 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
 
   /** Visits `n` with state `a`. */
   def visitBinding(n: Binding)(using a: Context): Unit =
-
+    if(n.initializer.isDefined){
+      n.initializer.get match
+        case ast.Record(_,_,_) =>
+          val recordType = n.tpe.asInstanceOf[symbols.Type.Record]
+          a.record.put(n.identifier, (a.memoryIndex, recordType.fields))
+        case _ =>
+    }
     n.initializer.get.visit(this)(using a)
 
   /** Visits `n` with state `a`. */
@@ -105,9 +111,6 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
 
   /** Visits `n` with state `a`. */
   def visitRecord(n: Record)(using a: Context): Unit =
-    val recordSize = n.fields.size * 4 //record size in bytes
-    val recordType = n.tpe.asInstanceOf[symbols.Type.Record]
-    a.record.put(recordType.identifier, (a.memoryIndex, recordType.fields))
     for(labeledExpr <- n.fields){
       a.output.addOne(IConst(a.memoryIndex))
       labeledExpr.value.visit(this)(using a)
@@ -127,8 +130,8 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
         case I32 => a.output.addOne(ILoad)
         case F32 => a.output.addOne(FLoad)
         case _ =>
-    n.qualification.referredEntity.get.tpe match
-      case symbols.Type.Record(identifier, fields) =>
+    n.qualification match
+      case ast.Identifier(identifier,_) =>
         val (recordIndex,recordFields) = a.record(identifier)
         n.selectee match
           case IntegerLiteral(value,site) =>
@@ -156,6 +159,9 @@ final class CodeGenerator(syntax: TypedProgram) extends ast.TreeVisitor[CodeGene
           a.output.addOne(Call("print"))
         case FLoad =>
           a.output.addOne(Call("fprint"))
+        case IAdd =>
+          a.output.addOne(Call("print"))
+        case _ =>
     }else{
       a.output.addOne(Call(funIdentifier))
     }
