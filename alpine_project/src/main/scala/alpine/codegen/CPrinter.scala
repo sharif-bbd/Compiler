@@ -13,16 +13,23 @@ import alpine.symbols.Type
 import alpine.symbols.Type.Bool
 
 /** The transpilation of an Alpine program to C. */
-final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[ScalaPrinter.Context, Unit]:
+final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Context, Unit]:
 
-  import ScalaPrinter.Context
+  import CPrinter.Context
 
   /** The program being evaluated. */
   private given TypedProgram = syntax
 
+  private def addCLibrary(using context: Context): Unit =
+    context.output ++= "#include <stdio.h>\n"
+    context.output ++= "#include <string.h>\n"
+    context.output ++= "#include <stdlib.h>\n"
+
+
   /** Returns a Scala program equivalent to `syntax`. */
   def transpile(): String =
     given c: Context = Context()
+    addCLibrary(using c)
     syntax.declarations.foreach(_.visit(this))
     c.typesToEmit.map(emitRecord)
     c.output.toString
