@@ -1,7 +1,8 @@
 package alpine
 package driver
 
-import scala.util.{Success, Failure}
+import java.nio.file.{Files, Paths}
+import scala.util.{Failure, Success}
 
 /** Run syntax analysis with the given `configuration`. */
 def parse(configuration: Configuration): Program =
@@ -32,10 +33,19 @@ def transpile(configuration: Configuration): Unit =
 /** Rewrites the input program in Scala using the given `configuration`. */
 def compile(configuration: Configuration): Unit =
   val typedSyntax = typeCheck(configuration)
+  val transpiler = codegen.CPrinter(typedSyntax)
+  val code = transpiler.transpile()
+  val fileObject = java.io.File("output.c")
+  val printWriter = java.io.PrintWriter(fileObject)
+  printWriter.write(transpiler.transpile())
+  printWriter.close()
+
+/*
+  val typedSyntax = typeCheck(configuration)
   val cg = codegen.CodeGenerator(typedSyntax)
   val module = cg.compile()
   wasm.Wasm.writeToFile("output.wat", module)
-  wasm.Wasm.watToWasm("output.wat", "output.wasm")
+  wasm.Wasm.watToWasm("output.wat", "output.wasm")*/
 
 def run(configuration: Configuration): Unit =
   compile(configuration)
