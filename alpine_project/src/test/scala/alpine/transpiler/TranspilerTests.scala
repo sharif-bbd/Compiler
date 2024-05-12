@@ -8,6 +8,7 @@ class TranspilerTests extends munit.FunSuite:
   var runner: Option[TranspilerUtils.Runner] = None
 
   val inputFileAlpineTests = "./src/test/res/transpiler/test_cases.al"
+  val inputFileAlpineUniqueTests = "./src/test/res/transpiler/unique_test.al"
 
   // Uncomment this line to run the codegen tests with the transpiler
   // val inputFileAlpineTests2 = "./src/test/res/codegen/test_cases.al"
@@ -47,7 +48,7 @@ class TranspilerTests extends munit.FunSuite:
   override def afterAll(): Unit =
     runner.foreach(_.delete)
 
-  runTestsFromFile(inputFileAlpineTests)
+  runTestsFromFile(inputFileAlpineUniqueTests)
 
 // Uncomment this line to run the codegen tests with the transpiler
 // runTestsFromFile(inputFileAlpineTests2)

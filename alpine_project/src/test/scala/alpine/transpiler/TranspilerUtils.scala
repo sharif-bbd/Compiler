@@ -86,7 +86,7 @@ object TranspilerUtils:
         val source = SourceFile.withContentsOfFile(inputFile.toAbsolutePath.toString).get
         val parsed = parsing.Parser(source).program()
         val typed = { val typer = typing.Typer(); typer.check(parsed) }
-        val transpiled = codegen.ScalaPrinter(typed).transpile()
+        val transpiled = codegen.CPrinter(typed).transpile()
         Right(writeScalaFile("main", transpiled))
       catch case (e: Throwable) =>
         Left(BackendError(e))

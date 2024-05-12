@@ -24,14 +24,21 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= "#include <stdio.h>\n"
     context.output ++= "#include <string.h>\n"
     context.output ++= "#include <stdlib.h>\n"
+    context.output ++= "#include  <stdbool.h>\n"
+    context.output ++= "#include \"builtin.h\"\n"
+    context.output ++= "\n"
+    //context.output ++= "typedef char string[1024];\n"
+    context.output ++= "\n"
 
 
   /** Returns a Scala program equivalent to `syntax`. */
   def transpile(): String =
-    given c: Context = Context()
+    val c: Context = Context()
     addCLibrary(using c)
-    syntax.declarations.foreach(_.visit(this))
-    c.typesToEmit.map(emitRecord)
+    c.typesToEmit.foreach(rec => emitRecord(rec)(using c))
+    for(syntax <- syntax.declarations){
+      syntax.visit(this)(using c)
+    }
     c.output.toString
 
   /** Writes the Scala declaration of `t` in `context`. */
@@ -73,11 +80,11 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   private def transpiledBuiltin(t: symbols.Type.Builtin)(using context: Context): String =
     t match
       case symbols.Type.BuiltinModule => throw Error(s"type '${t}' is not representable in Scala")
-      case symbols.Type.Bool => "Boolean"
-      case symbols.Type.Int => "Int"
-      case symbols.Type.Float => "Float"
-      case symbols.Type.String => "String"
-      case symbols.Type.Any => "Any"
+      case symbols.Type.Bool => "bool "
+      case symbols.Type.Int => "int "
+      case symbols.Type.Float => "float "
+      case symbols.Type.String => "char* "
+      case symbols.Type.Any => "void* "
 
   /** Returns the transpiled form of `t`. */
   private def transpiledRecord(t: symbols.Type.Record)(using context: Context): String =
@@ -157,7 +164,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   /** Returns a transpiled reference to `e`. */
   private def transpiledReferenceTo(e: symbols.Entity): String =
     e match
-      case symbols.Entity.Builtin(n, _) => s"alpine_rt.builtin.${n.identifier}"
+      case symbols.Entity.Builtin(n, _) => n.identifier.toUpperCase()
       case symbols.Entity.Declaration(n, t) => scalaized(n) + discriminator(t)
       case symbols.Entity.Field(r,index) => discriminator(r.fields(index).value)
 
@@ -179,23 +186,26 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
       // If the is the entry point if it's called "main".
       if n.identifier == "main" then
-        context.output ++= "@main def $entry"
+        context.output ++= "int main(){\n"
       else
-        context.output ++= s"private val "
+        context.output ++= transpiledType(n.tpe)
         context.output ++= transpiledReferenceTo(n.entityDeclared)
 
-      /* commented : original version has these 2 lines
-      context.output ++= ": "
-      context.output ++= transpiledType(n.tpe)
-      */
+
 
       // Top-level bindings must have an initializer.
       assert(n.initializer.isDefined)
       context.indentation += 1
-      context.output ++= " =\n"
+      if(n.identifier != "main"){
+        context.output ++= " ="
+      }
       context.output ++= "  " * context.indentation
       context.inScope((c) => n.initializer.get.visit(this)(using c))
-      context.output ++= "\n\n"
+      context.output ++= ";\n\n"
+      if (n.identifier == "main") {
+        context.output ++= "  " * context.indentation + "return 0;\n"
+        context.output ++= "}"
+      }
       context.indentation -= 1
 
     // Bindings at local-scope are used in let-bindings and pattern cases.
@@ -217,23 +227,28 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
   override def visitFunction(n: ast.Function)(using context: Context): Unit =
     context.output ++= "  " * context.indentation
-    context.output ++= "def "
+
+
+    context.output ++= transpiledType(symbols.Type.Arrow.from(n.tpe).get.output)
+
     context.output ++= transpiledReferenceTo(n.entityDeclared)
     context.output ++= "("
     context.output.appendCommaSeparated(n.inputs) { (o, a) =>
-      o ++= a.identifier
-      o ++= ": "
       o ++= transpiledType(a.tpe)
+      o ++= " "
+      o ++= a.identifier
     }
-    context.output ++= "): "
-    context.output ++= transpiledType(symbols.Type.Arrow.from(n.tpe).get.output)
-    context.output ++= " =\n"
-
+    context.output ++= "){\n "
     context.indentation += 1
     context.output ++= "  " * context.indentation
     context.inScope((c) => n.body.visit(this)(using c))
-    context.output ++= "\n\n"
+    // add return statement to the function
+    context.output.insert(
+      context.output.lastIndexOf(" ")+1,
+      "return ")
+    context.output ++= ";\n\n"
     context.indentation -= 1
+    context.output ++= "}\n"
 
   override def visitParameter(n: ast.Parameter)(using context: Context): Unit =
     unexpectedVisit(n)
@@ -416,7 +431,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
 object CPrinter:
 
-  /** The local state of a transpilation to Scala.
+  /** The local state of a transpilation to C.
    *
    *  @param indentation The current identation to add before newlines.
    */

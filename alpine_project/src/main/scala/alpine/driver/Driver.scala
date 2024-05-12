@@ -35,7 +35,7 @@ def compile(configuration: Configuration): Unit =
   val typedSyntax = typeCheck(configuration)
   val transpiler = codegen.CPrinter(typedSyntax)
   val code = transpiler.transpile()
-  val fileObject = java.io.File("output.c")
+  val fileObject = java.io.File("Cgen/output.c")
   val printWriter = java.io.PrintWriter(fileObject)
   printWriter.write(transpiler.transpile())
   printWriter.close()
