@@ -25,9 +25,9 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= "#include <string.h>\n"
     context.output ++= "#include <stdlib.h>\n"
     context.output ++= "#include  <stdbool.h>\n"
-    context.output ++= "#include \"builtin.h\"\n"
+    context.output ++= "#include \"builtin.h\"\n\n"
+    context.output ++= "// RECORD DECLARATION\n"
     context.output ++= "\n"
-    //context.output ++= "typedef char string[1024];\n"
     context.output ++= "\n"
 
 
@@ -35,16 +35,16 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   def transpile(): String =
     val c: Context = Context()
     addCLibrary(using c)
-    c.typesToEmit.foreach(rec => emitRecord(rec)(using c))
     for(syntax <- syntax.declarations){
       syntax.visit(this)(using c)
     }
+    c.typesToEmit.foreach(rec => emitRecord(rec)(using c))
     c.output.toString
 
   /** Writes the Scala declaration of `t` in `context`. */
   private def emitRecord(t: symbols.Type.Record)(using context: Context): Unit =
     if(t.fields.isEmpty){
-      context.output ++= s"case object ${transpiledType(t)}"
+      context.output ++= s"typedef struct {} ${transpiledType(t)};"
     }else{
       emitNonSingletonRecord(t)
     }
@@ -55,12 +55,20 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   private def emitNonSingletonRecord(t: symbols.Type.Record)(using context: Context): Unit =
     val fields = t.fields.zipWithIndex.map { case (field, index) =>
       val label = field.label.getOrElse("$"+ s"$index")
-      s"$label: ${transpiledType(field.value)}"
+      s"${transpiledType(field.value)} $label"
     }
-    context.output ++= s"case class ${transpiledType(t)}"
-    context.output ++= "("
-    context.output.appendCommaSeparated(fields) {(o, a) => o ++= a }
-    context.output ++= ")"
+    val recordDeclaration = StringBuilder()
+    recordDeclaration ++= s"typedef struct {\n"
+    context.indentation += 1
+    fields.foreach(field =>
+    recordDeclaration ++= "  " * context.indentation + field + ";\n")
+    context.indentation -= 1
+    recordDeclaration ++= s"} ${transpiledRecord(t)};\n"
+
+    val index = context.output.lastIndexOf("// RECORD DECLARATION\n") + "// RECORD DECLARATION\n".length
+    context.output.insert(
+      index,
+      recordDeclaration.toString())
 
 
   /** Returns the transpiled form of `t`. */
@@ -188,10 +196,8 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       if n.identifier == "main" then
         context.output ++= "int main(){\n"
       else
-        context.output ++= transpiledType(n.tpe)
+        context.output ++= transpiledType(n.tpe) + " "
         context.output ++= transpiledReferenceTo(n.entityDeclared)
-
-
 
       // Top-level bindings must have an initializer.
       assert(n.initializer.isDefined)
@@ -271,17 +277,16 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   override def visitRecord(n: ast.Record)(using context: Context): Unit =
     val t = n.tpe.asInstanceOf[symbols.Type.Record]
     context.typesToEmit + t
-    context.output ++=transpiledRecord(t)
-    context.output ++= "("
+    context.output ++= "{"
     context.output.appendCommaSeparated(n.fields) { (o, a) => a.value.visit(this) }
-    context.output ++= ")"
+    context.output ++= "}"
 
 
   override def visitSelection(n: ast.Selection)(using context: Context): Unit =
     n.qualification.visit(this)
     n.referredEntity match
       case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
-        context.output ++= s".productElement(${e.index}).asInstanceOf[${transpiledType(e.whole.fields(e.index).value)}]"
+        context.output ++= "." + e.whole.fields(e.index).label.getOrElse("$"+ s"${e.index}")
       case _ =>
         unexpectedVisit(n.selectee)
 
@@ -352,6 +357,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     n.body.visit(this)
     context.output ++= "): "
     context.output ++= transpiledType(symbols.Type.Arrow.from(n.tpe).get.output)
+
   override def visitParenthesizedExpression(
                                              n: ast.ParenthesizedExpression
                                            )(using context: Context): Unit =
