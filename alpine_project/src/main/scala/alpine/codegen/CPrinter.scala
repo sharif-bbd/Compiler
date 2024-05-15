@@ -26,9 +26,44 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= "#include <stdlib.h>\n"
     context.output ++= "#include  <stdbool.h>\n"
     context.output ++= "#include \"builtin.h\"\n\n"
-    context.output ++= "// RECORD DECLARATION\n"
+    context.output ++= "//PATTERN\n"
+    context.output ++= "//RECORD DECLARATION\n"
     context.output ++= "\n"
     context.output ++= "\n"
+
+
+
+
+  private def addPatternMatcher(using context: Context): Unit =
+    val recordTypes = context.typesToEmit.toList
+    val indexPattern = context.output.lastIndexOf("//PATTERN\n") + "//PATTERN\n".length
+
+    context.output.insert(indexPattern,"typedef struct {\n" +
+      "  PatternType payload;\n" +
+      "  int discriminator;\n" +
+      "} PatternMatcher;\n")
+    context.output.insert(indexPattern,"typedef union {\n" +
+      "} PatternType;\n\n")
+
+    val indexUnion =  context.output.lastIndexOf("typedef union {\n") + "typedef union {\n".length
+    for(t <- context.typesToEmit.toList){
+        val sb = StringBuilder()
+        sb ++= s"  struct {} ${transpiledType(t)};\n"
+        val fields = t.fields.zipWithIndex.map { case (field, index) =>
+          val label = field.label.getOrElse("$" + s"$index")
+          s"${transpiledType(field.value)}$label"
+        }
+        if(fields.nonEmpty){
+          sb.insert(sb.lastIndexOf("{")+1, fields.mkString(", ") + "; ")
+        }
+        context.output.insert(indexUnion,sb.toString())
+    }
+    for(t <- recordTypes){
+      context.output.insert(indexPattern, s"#define ${transpiledType(t).toUpperCase()} ${context.nbPattern}\n")
+      context.nbPattern += 1
+    }
+
+
 
 
   /** Returns a Scala program equivalent to `syntax`. */
@@ -39,6 +74,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       syntax.visit(this)(using c)
     }
     c.typesToEmit.foreach(rec => emitRecord(rec)(using c))
+    addPatternMatcher(using c)
     c.output.toString
 
   /** Writes the Scala declaration of `t` in `context`. */
@@ -55,7 +91,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   private def emitNonSingletonRecord(t: symbols.Type.Record)(using context: Context): Unit =
     val fields = t.fields.zipWithIndex.map { case (field, index) =>
       val label = field.label.getOrElse("$"+ s"$index")
-      s"${transpiledType(field.value)} $label"
+      s"${transpiledType(field.value)}$label"
     }
     val recordDeclaration = StringBuilder()
     recordDeclaration ++= s"typedef struct {\n"
@@ -65,7 +101,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.indentation -= 1
     recordDeclaration ++= s"} ${transpiledRecord(t)};\n"
 
-    val index = context.output.lastIndexOf("// RECORD DECLARATION\n") + "// RECORD DECLARATION\n".length
+    val index = context.output.lastIndexOf("//RECORD DECLARATION\n") + "//RECORD DECLARATION\n".length
     context.output.insert(
       index,
       recordDeclaration.toString())
@@ -441,7 +477,7 @@ object CPrinter:
    *
    *  @param indentation The current identation to add before newlines.
    */
-  final class Context(var indentation: Int = 0):
+  final class Context(var indentation: Int = 0,var nbPattern: Int = 0):
 
     /** The types that must be emitted in the program. */
     private var _typesToEmit = mutable.Set[symbols.Type.Record]()
