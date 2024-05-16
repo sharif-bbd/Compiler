@@ -2,6 +2,7 @@ package alpine
 package codegen
 
 import alpine.ast
+import alpine.ast.{RecordPattern, Wildcard}
 import alpine.ast.Typecast.{Narrow, NarrowUnconditionally, Widen}
 import alpine.symbols
 import alpine.symbols.Entity.builtinModule
@@ -26,12 +27,11 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= "#include <stdlib.h>\n"
     context.output ++= "#include  <stdbool.h>\n"
     context.output ++= "#include \"builtin.h\"\n\n"
-    context.output ++= "//PATTERN\n"
+    context.output ++= "//PATTERN\n\n"
     context.output ++= "//RECORD DECLARATION\n"
+    context.output ++= "\n//MAIN\n"
     context.output ++= "\n"
     context.output ++= "\n"
-
-
 
 
   private def addPatternMatcher(using context: Context): Unit =
@@ -41,7 +41,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output.insert(indexPattern,"typedef struct {\n" +
       "  PatternType payload;\n" +
       "  int discriminator;\n" +
-      "} PatternMatcher;\n")
+      "} PatternMatcher;\n\n")
     context.output.insert(indexPattern,"typedef union {\n" +
       "} PatternType;\n\n")
 
@@ -50,22 +50,23 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
         val sb = StringBuilder()
         sb ++= s"  struct {} ${transpiledType(t)};\n"
         val fields = t.fields.zipWithIndex.map { case (field, index) =>
-          val label = field.label.getOrElse("$" + s"$index")
+          val label = field.label.getOrElse(" $" + s"$index")
           s"${transpiledType(field.value)}$label"
         }
         if(fields.nonEmpty){
-          sb.insert(sb.lastIndexOf("{")+1, fields.mkString(", ") + "; ")
+          sb.insert(sb.lastIndexOf("{")+1, fields.mkString("","; ","; "))
         }
         context.output.insert(indexUnion,sb.toString())
     }
     for(t <- recordTypes){
-      context.output.insert(indexPattern, s"#define ${transpiledType(t).toUpperCase()} ${context.nbPattern}\n")
+      if (context.nbPattern == 0) {
+        context.output.insert(indexPattern, s"#define ${transpiledType(t).toUpperCase()} ${context.nbPattern}\n\n")
+      }else{
+        context.output.insert(indexPattern, s"#define ${transpiledType(t).toUpperCase()} ${context.nbPattern}\n")
+      }
+
       context.nbPattern += 1
     }
-
-
-
-
   /** Returns a Scala program equivalent to `syntax`. */
   def transpile(): String =
     val c: Context = Context()
@@ -90,7 +91,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   /** Writes the Scala declaration of `t`, which is not a singleton, in `context`. */
   private def emitNonSingletonRecord(t: symbols.Type.Record)(using context: Context): Unit =
     val fields = t.fields.zipWithIndex.map { case (field, index) =>
-      val label = field.label.getOrElse("$"+ s"$index")
+      val label = field.label.getOrElse(" $"+ s"$index")
       s"${transpiledType(field.value)}$label"
     }
     val recordDeclaration = StringBuilder()
@@ -123,7 +124,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   /** Returns the transpiled form of `t`. */
   private def transpiledBuiltin(t: symbols.Type.Builtin)(using context: Context): String =
     t match
-      case symbols.Type.BuiltinModule => throw Error(s"type '${t}' is not representable in Scala")
+      case symbols.Type.BuiltinModule => throw Error(s"type '${t}' is not representable in C")
       case symbols.Type.Bool => "bool "
       case symbols.Type.Int => "int "
       case symbols.Type.Float => "float "
@@ -225,14 +226,17 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
   override def visitBinding(n: ast.Binding)(using context: Context): Unit =
     // Bindings represent global symbols at top-level.
+
     if context.isTopLevel then
       context.output ++= "  " * context.indentation
 
       // If the is the entry point if it's called "main".
       if n.identifier == "main" then
-        context.output ++= "int main(){\n"
+        context.output.insert(
+          context.output.lastIndexOf("//MAIN\n") + "//MAIN\n".length,
+          "int main(){")
       else
-        context.output ++= transpiledType(n.tpe) + " "
+        context.output ++= "  " * (context.indentation+1) + transpiledType(n.tpe) + " "
         context.output ++= transpiledReferenceTo(n.entityDeclared)
 
       // Top-level bindings must have an initializer.
@@ -355,18 +359,47 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     n.failureCase.visit(this)
 
   override def visitMatch(n: ast.Match)(using context: Context): Unit =
+    context.output ++= "match((PatternMatcher){"
     n.scrutinee.visit(this)
-    context.output ++= " match {\n"
+    context.output ++= s", ${transpiledType(n.scrutinee.tpe).toUpperCase()}})"
+
+    val currentContext = context.output.clone()
+    context.output.clear()
+
+    context.output ++= s"${transpiledType(n.cases.head.body.tpe)} match(PatternMatcher p){\n"
+    context.indentation += 1
+    context.output ++= "  " * context.indentation + "switch(p.discriminator){\n"
+    context.indentation += 1
+
     for mc <- n.cases do
       visitMatchCase(mc)
-    context.output ++= "}"
+    context.indentation -= 1
+    context.output ++= "  " * context.indentation + "}\n"
+    context.indentation -= 1
+    context.output ++= "  " * context.indentation + "}\n\n"
+
+    val matchFunction = context.output.toString()
+    context.output.clear()
+    context.output ++= currentContext
+    context.output.insert(context.output.lastIndexOf("//PATTERN\n") + "//PATTERN\n".length,matchFunction)
+
+
+
 
   override def visitMatchCase(n: ast.Match.Case)(using context: Context): Unit =
-    context.output ++= "  case "
-    n.pattern.visit(this)
-    context.output ++= " => "
+    n.pattern match
+      case ast.RecordPattern(identifier,fields,_) =>
+        context.output ++= "  " * context.indentation + s"case ${transpiledType(n.pattern.tpe).toUpperCase()}:\n"
+      case ast.Wildcard(_) =>
+        context.output ++= "  " * context.indentation + s"default:\n"
+      case _ =>
+    context.indentation += 1
+    context.output ++= "  " * context.indentation + "return "
     n.body.visit(this)
-    context.output ++= "\n"
+    context.output ++= ";\n"
+    context.output ++=  "  " * context.indentation + "break;\n"
+    context.indentation -= 1
+
 
   override def visitLet(n: ast.Let)(using context: Context): Unit =
     // Use a block to uphold lexical scoping.
