@@ -27,11 +27,10 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= "#include <stdlib.h>\n"
     context.output ++= "#include  <stdbool.h>\n"
     context.output ++= "#include \"builtin.h\"\n\n"
-    context.output ++= "//PATTERN\n\n"
     context.output ++= "//RECORD DECLARATION\n"
+    context.output ++= "//PATTERN\n\n"
     context.output ++= "\n//MAIN\n"
-    context.output ++= "\n"
-    context.output ++= "\n"
+    context.output ++= "\n\n"
 
 
   private def addPatternMatcher(using context: Context): Unit =
@@ -46,6 +45,12 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       "} PatternType;\n\n")
 
     val indexUnion =  context.output.lastIndexOf("typedef union {\n") + "typedef union {\n".length
+    val sb = StringBuilder()
+    context.typesToEmit.foreach( t =>
+      sb ++= s"  ${transpiledType(t)} ${transpiledType(t).toLowerCase};\n"
+    )
+    context.output.insert(indexUnion, sb.toString())
+    /*
     for(t <- context.typesToEmit.toList){
         val sb = StringBuilder()
         sb ++= s"  struct {} ${transpiledType(t)};\n"
@@ -57,7 +62,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
           sb.insert(sb.lastIndexOf("{")+1, fields.mkString("","; ","; "))
         }
         context.output.insert(indexUnion,sb.toString())
-    }
+    }*/
     for(t <- recordTypes){
       if (context.nbPattern == 0) {
         context.output.insert(indexPattern, s"#define ${transpiledType(t).toUpperCase()} ${context.nbPattern}\n\n")
@@ -81,11 +86,11 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   /** Writes the Scala declaration of `t` in `context`. */
   private def emitRecord(t: symbols.Type.Record)(using context: Context): Unit =
     if(t.fields.isEmpty){
-      context.output ++= s"typedef struct {} ${transpiledType(t)};"
+      context.output ++= s"typedef struct {} ${transpiledType(t)};\n\n"
     }else{
       emitNonSingletonRecord(t)
     }
-    context.output ++= "\n"
+
 
 
   /** Writes the Scala declaration of `t`, which is not a singleton, in `context`. */
@@ -100,7 +105,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     fields.foreach(field =>
     recordDeclaration ++= "  " * context.indentation + field + ";\n")
     context.indentation -= 1
-    recordDeclaration ++= s"} ${transpiledRecord(t)};\n"
+    recordDeclaration ++= s"} ${transpiledRecord(t)};\n\n"
 
     val index = context.output.lastIndexOf("//RECORD DECLARATION\n") + "//RECORD DECLARATION\n".length
     context.output.insert(
@@ -134,7 +139,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
   /** Returns the transpiled form of `t`. */
   private def transpiledRecord(t: symbols.Type.Record)(using context: Context): String =
     if t == symbols.Type.Unit then
-      "Unit"
+      "void"
     else
       context.registerUse(t)
       val d = if t.identifier == "#some" then "Some" else discriminator(t)
@@ -236,18 +241,26 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
           context.output.lastIndexOf("//MAIN\n") + "//MAIN\n".length,
           "int main(){")
       else
-        context.output ++= "  " * (context.indentation+1) + transpiledType(n.tpe) + " "
-        context.output ++= transpiledReferenceTo(n.entityDeclared)
+        if(!n.initializer.get.tpe.isSubtypeOf(Type.Unit)){
+          context.output ++= "  " * (context.indentation + 1) + transpiledType(n.tpe) + " "
+          context.output ++= transpiledReferenceTo(n.entityDeclared)
+        }
+
 
       // Top-level bindings must have an initializer.
+
       assert(n.initializer.isDefined)
       context.indentation += 1
-      if(n.identifier != "main"){
+      if( !n.initializer.get.tpe.isSubtypeOf(Type.Unit) ){
         context.output ++= " ="
       }
       context.output ++= "  " * context.indentation
-      context.inScope((c) => n.initializer.get.visit(this)(using c))
-      context.output ++= ";\n\n"
+      n.initializer.get match
+        case ast.Identifier(value,_) if value != "print" =>
+        case _ =>
+          context.inScope((c) => n.initializer.get.visit(this)(using c))
+          context.output ++= ";\n\n"
+
       if (n.identifier == "main") {
         context.output ++= "  " * context.indentation + "return 0;\n"
         context.output ++= "}"
@@ -351,11 +364,10 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= ")"
 
   override def visitConditional(n: ast.Conditional)(using context: Context): Unit =
-    context.output ++= "if "
     n.condition.visit(this)
-    context.output ++= " then "
+    context.output ++= " ? "
     n.successCase.visit(this)
-    context.output ++= " else "
+    context.output ++= " : "
     n.failureCase.visit(this)
 
   override def visitMatch(n: ast.Match)(using context: Context): Unit =
@@ -394,7 +406,11 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
         context.output ++= "  " * context.indentation + s"default:\n"
       case _ =>
     context.indentation += 1
-    context.output ++= "  " * context.indentation + "return "
+    context.output ++= "  " * context.indentation
+    n.body.tpe match
+      case Type.Unit =>
+      case _ => context.output ++= "return "
+
     n.body.visit(this)
     context.output ++= ";\n"
     context.output ++=  "  " * context.indentation + "break;\n"
