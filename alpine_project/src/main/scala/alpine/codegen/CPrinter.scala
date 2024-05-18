@@ -50,19 +50,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       sb ++= s"  ${transpiledType(t)} ${transpiledType(t).toLowerCase};\n"
     )
     context.output.insert(indexUnion, sb.toString())
-    /*
-    for(t <- context.typesToEmit.toList){
-        val sb = StringBuilder()
-        sb ++= s"  struct {} ${transpiledType(t)};\n"
-        val fields = t.fields.zipWithIndex.map { case (field, index) =>
-          val label = field.label.getOrElse(" $" + s"$index")
-          s"${transpiledType(field.value)}$label"
-        }
-        if(fields.nonEmpty){
-          sb.insert(sb.lastIndexOf("{")+1, fields.mkString("","; ","; "))
-        }
-        context.output.insert(indexUnion,sb.toString())
-    }*/
+
     for(t <- recordTypes){
       if (context.nbPattern == 0) {
         context.output.insert(indexPattern, s"#define ${transpiledType(t).toUpperCase()} ${context.nbPattern}\n\n")
@@ -79,7 +67,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     for(syntax <- syntax.declarations){
       syntax.visit(this)(using c)
     }
-    c.typesToEmit.foreach(rec => emitRecord(rec)(using c))
+    c.typesToEmit.toList.reverse.foreach(rec => emitRecord(rec)(using c))
     addPatternMatcher(using c)
     c.output.toString
 
@@ -254,6 +242,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       if( !n.initializer.get.tpe.isSubtypeOf(Type.Unit) ){
         context.output ++= " ="
       }
+
       context.output ++= "  " * context.indentation
       n.initializer.get match
         case ast.Identifier(value,_) if value != "print" =>
@@ -269,17 +258,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
     // Bindings at local-scope are used in let-bindings and pattern cases.
     else
-      // added this if to make match case work
-      if(n.initializer.isDefined){
-        context.output ++= s"val "
-      }
-      context.output ++= transpiledReferenceTo(n.entityDeclared)
-      context.output ++= ": "
-      context.output ++= transpiledType(n.tpe)
-      n.initializer.map { (i) =>
-        context.output ++= " = "
-        context.inScope((c) => i.visit(this)(using c))
-      }
+      context.output ++= "  " * context.indentation + s"case ${transpiledType(n.tpe).toUpperCase()}:\n"
 
   override def visitTypeDeclaration(n: ast.TypeDeclaration)(using context: Context): Unit =
     unexpectedVisit(n)
@@ -313,7 +292,11 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     unexpectedVisit(n)
 
   override def visitIdentifier(n: ast.Identifier)(using context: Context): Unit =
-    context.output ++= transpiledReferenceTo(n.referredEntity.get.entity)
+    if(context.isTopLevel){
+      context.output ++= transpiledReferenceTo(n.referredEntity.get.entity)
+    }else{
+      context.output ++= context.patternBindings.getOrElse(n.value,transpiledReferenceTo(n.referredEntity.get.entity))
+    }
 
   override def visitBooleanLiteral(n: ast.BooleanLiteral)(using context: Context): Unit =
     context.output ++= n.value.toString
@@ -329,19 +312,28 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
   override def visitRecord(n: ast.Record)(using context: Context): Unit =
     val t = n.tpe.asInstanceOf[symbols.Type.Record]
-    context.typesToEmit + t
+    context.registerUse(t)
     context.output ++= "{"
     context.output.appendCommaSeparated(n.fields) { (o, a) => a.value.visit(this) }
     context.output ++= "}"
 
 
   override def visitSelection(n: ast.Selection)(using context: Context): Unit =
-    n.qualification.visit(this)
-    n.referredEntity match
-      case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
-        context.output ++= "." + e.whole.fields(e.index).label.getOrElse("$"+ s"${e.index}")
-      case _ =>
-        unexpectedVisit(n.selectee)
+      if(context.isTopLevel){
+        n.qualification.visit(this)
+      }
+      n.referredEntity match
+        case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
+          if(context.isTopLevel){
+            context.output ++= "." + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
+          }else{
+            context.output ++= "p.payload." +
+              transpiledType(e.whole).toLowerCase() + "."
+              + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
+          }
+        case _ =>
+          unexpectedVisit(n.selectee)
+
 
   override def visitApplication(n: ast.Application)(using context: Context): Unit =
     n.function.visit(this)
@@ -371,7 +363,9 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     n.failureCase.visit(this)
 
   override def visitMatch(n: ast.Match)(using context: Context): Unit =
+    context.patternBindings.clear()
     context.output ++= "match((PatternMatcher){"
+    context.output ++= s".payload.${transpiledType(n.scrutinee.tpe).toLowerCase} = "
     n.scrutinee.visit(this)
     context.output ++= s", ${transpiledType(n.scrutinee.tpe).toUpperCase()}})"
 
@@ -396,19 +390,18 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output.insert(context.output.lastIndexOf("//PATTERN\n") + "//PATTERN\n".length,matchFunction)
 
 
-
-
   override def visitMatchCase(n: ast.Match.Case)(using context: Context): Unit =
     n.pattern match
-      case ast.RecordPattern(identifier,fields,_) =>
+      case recordPattern :ast.RecordPattern =>
         context.output ++= "  " * context.indentation + s"case ${transpiledType(n.pattern.tpe).toUpperCase()}:\n"
       case ast.Wildcard(_) =>
         context.output ++= "  " * context.indentation + s"default:\n"
       case _ =>
+    n.pattern.visit(this)
     context.indentation += 1
     context.output ++= "  " * context.indentation
     n.body.tpe match
-      case Type.Unit =>
+      case Type.Unit => 
       case _ => context.output ++= "return "
 
     n.body.visit(this)
@@ -501,21 +494,27 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     unexpectedVisit(n)
 
   override def visitValuePattern(n: ast.ValuePattern)(using context: Context): Unit =
-    n.value.visit(this)
+    {}
 
+  private def capturePatternBinding(n: ast.RecordPattern, captureName: String)(using context: Context): Unit =
+    for ((field,index) <- n.fields.zipWithIndex) {
+      val selectee = s".${field.label.getOrElse("$" + s"${index}")}"
+      val newCapture = captureName + selectee
+        field.value match
+        case recordPattern: RecordPattern  =>
+          capturePatternBinding(recordPattern,newCapture)
+        case binding: ast.Binding =>
+          context.patternBindings.addOne(
+            binding.identifier,
+            newCapture
+          )
+        case _ =>
+    }
   override def visitRecordPattern(n: ast.RecordPattern)(using context: Context): Unit =
-    if(n.fields.isEmpty){
-      context.output ++= s"${transpiledType(n.tpe)}"
-    }
-    else{
-      context.output ++= s"${transpiledType(n.tpe)}("
-      context.output.appendCommaSeparated(n.fields) { (o, a) =>
-        a.value.visit(this)
-      }
-      context.output ++= ")"
-    }
+    capturePatternBinding(n, s"p.payload.${transpiledType(n.tpe).toLowerCase}")(using context)
+
   override def visitWildcard(n: ast.Wildcard)(using context: Context): Unit =
-    context.output ++= "_"
+    {}
 
   override def visitError(n: ast.ErrorTree)(using context: Context): Unit =
     unexpectedVisit(n)
@@ -534,6 +533,9 @@ object CPrinter:
     /** The types that must be emitted in the program. */
     def typesToEmit: Set[symbols.Type.Record] = _typesToEmit.toSet
 
+    private val _patternBindings: mutable.Map[String,String] = mutable.Map[String,String]()
+
+    def patternBindings: mutable.Map[String,String] = _patternBindings
     /** The (partial) result of the transpilation. */
     private var _output = StringBuilder()
 
