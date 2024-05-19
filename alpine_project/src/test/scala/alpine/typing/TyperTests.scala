@@ -298,7 +298,7 @@ class TyperTests extends munit.FunSuite:
   }
 
   test("`visitFunction` should return the correct type of a function (3pts)") {
-    val function = ast.Function("main", Nil, List(ast.Parameter(None, "x", Some(ast.TypeIdentifier("Int", dummySite)), dummySite)), Some(ast.TypeIdentifier("Int", dummySite)), ast.IntegerLiteral("1", dummySite), dummySite)
+    val function = ast.Function("main",None, Nil, List(ast.Parameter(None, "x", Some(ast.TypeIdentifier("Int", dummySite)), dummySite)), Some(ast.TypeIdentifier("Int", dummySite)), ast.IntegerLiteral("1", dummySite), dummySite)
     val typer = Typer()
     typer.syntax = dummyProgram
     val ctx = Typer.Context()

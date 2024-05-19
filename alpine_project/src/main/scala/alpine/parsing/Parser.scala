@@ -80,8 +80,11 @@ class Parser(val source: SourceFile):
   /** Parses and returns a function declaration. */
   private[parsing] def function(): Function =
     expect(K.Fun)
-    val functionName = functionIdentifier()
-    val inputs = valueParameterList()
+    val f = functionIdentifier()
+    val prefix = f._1
+    val functionName = f._2
+    val selfParameter = if(prefix.isDefined) Parameter(None, "self", Some(prefix.get), emptySiteAtLastBoundary) else null
+    val inputs =if(selfParameter != null) selfParameter :: valueParameterList() else valueParameterList()
     val output = if (peek.exists(_.kind == K.Arrow)) {
       expect(K.Arrow)
       Some(tpe())
@@ -91,17 +94,27 @@ class Parser(val source: SourceFile):
     expect(K.LBrace)
     val body = expression()
     expect(K.RBrace)
-    Function(functionName,Nil, inputs, output, body,emptySiteAtLastBoundary)
+
+    Function(functionName, prefix, Nil, inputs, output, body,emptySiteAtLastBoundary)
+
+  
+
+
 
   /** Parses and returns the identifier of a function. */
-  private def functionIdentifier(): String =
+  private def functionIdentifier(): (Option[TypeIdentifier],String) =
     take(K.Identifier) match
       case Some(s) =>
-        s.site.text.toString
-      case _ if peek.map((t) => t.kind.isOperatorPart).getOrElse(false) =>
-        operatorIdentifier()(1).text.toString
+        peek match
+          case Some(token) if token.kind == K.Dot =>
+            take(K.Dot)
+            (Some(TypeIdentifier(s.site.text.toString, emptySiteAtLastBoundary)), functionIdentifier()._2)
+          case _ =>
+            (None, s.site.text.toString)
+      case _ if peek.exists((t) => t.kind.isOperatorPart) =>
+        (None,operatorIdentifier()(1).text.toString)
       case _ =>
-        missingName
+        (None,missingName)
 
   /** Parses and returns a list of parameter declarations in parentheses. */
   private[parsing] def valueParameterList(): List[Parameter] =
@@ -113,16 +126,21 @@ class Parser(val source: SourceFile):
 
   /** Parses and returns a parameter declaration. */
   private[parsing] def parameter(): Declaration =
-    val labelOpt: Option[String] = peek match {
+    var labelOpt: Option[String] = peek match {
       case Some(token) if token.kind.isKeyword => take().map(_.site.text.toString)
-      case Some(Token(K.Identifier,_)) => Some(expect(K.Identifier).site.text.toString)
+      case Some(Token(K.Identifier, _)) => Some(expect(K.Identifier).site.text.toString)
       case Some(Token(K.Underscore, _)) =>
         take()
         None
       case _ => None
     }
-    val identifier: String = expect(K.Identifier).site.text.toString
-
+    var identifier = ""
+    if (peek.exists(_.kind == K.Identifier)) {
+      identifier = expect(K.Identifier).site.text.toString
+    } else {
+      identifier = labelOpt.get
+      labelOpt = None
+    }
     val parameterType: Option[Type] = if (peek.exists(_.kind == K.Colon)) {
       take()
       Some(tpe())

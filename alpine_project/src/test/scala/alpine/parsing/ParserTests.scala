@@ -681,42 +681,62 @@ class ParserTests extends munit.FunSuite:
   test("`function` works with a function with no arguments (1pt)") {
     val p = instrumentParser("fun f() { 1 }", 0)
     p.function() match
-      case Function("f", List(), List(), None, IntegerLiteral("1", _), _) => ()
+      case Function("f", None, List(), List(), None, IntegerLiteral("1", _), _) => ()
       case x => fail(f"Expected a correct function, got $x.")
   }
 
   test("`function` works with a function with a single argument (1pt)") {
     val p = instrumentParser("fun f(_ x: Int) { 1 }", 0)
     p.function() match
-      case Function("f", List(), List(Parameter(None, "x", Some(TypeIdentifier("Int", _)), _)), None, IntegerLiteral("1", _), _) => ()
+      case Function("f", None,  List(), List(Parameter(None, "x", Some(TypeIdentifier("Int", _)), _)), None, IntegerLiteral("1", _), _) => ()
       case x => fail(f"Expected a correct function, got $x.")
   }
 
   test("`function` works with a function with a single labelled argument (1pt)") {
     val p = instrumentParser("fun f(label x: Int) { 1 }", 0)
     p.function() match
-      case Function("f", List(), List(Parameter(Some("label"), "x", Some(TypeIdentifier("Int", _)), _)), None, IntegerLiteral("1", _), _) => ()
+      case Function("f", None, List(), List(Parameter(Some("label"), "x", Some(TypeIdentifier("Int", _)), _)), None, IntegerLiteral("1", _), _) => ()
       case x => fail(f"Expected a correct function, got $x.")
   }
 
   test("`function` works with a function with a single labelled argument and a single unlabelled argument (1pt)") {
     val p = instrumentParser("fun f(label x: Int, _ y: Float) { 1 }", 0)
-    p.function() match
-      case Function("f", List(), List(Parameter(Some("label"), "x", Some(TypeIdentifier("Int", _)), _), Parameter(None, "y", Some(TypeIdentifier("Float", _)), _)), None, IntegerLiteral("1", _), _) => ()
+    val pf = p.function()
+    println(pf.toString)
+    pf match
+      case Function("f", None, List(), List(Parameter(Some("label"), "x", Some(TypeIdentifier("Int", _)), _), Parameter(None, "y", Some(TypeIdentifier("Float", _)), _)), None, IntegerLiteral("1", _), _) => ()
       case x => fail(f"Expected a correct function, got $x.")
+  }
+
+  test("`function` works with a method without parameters (1pts)"){
+    val p = instrumentParser("fun Int.negate() -> Int{ -self}", 0)
+    val pf = p.function()
+    println(pf.toString)
+    pf match
+      case Function("negate", Some(TypeIdentifier("Int", _)), List(), List(Parameter(None, "self", Some(TypeIdentifier("Int", _)), _)), Some(TypeIdentifier("Int", _)), PrefixApplication(Identifier("-", _), Identifier("self",_), _), _) => ()
+      case x => fail(f"Expected a correct function, got $x")
+  }
+
+  test("`function`works with a method with parameters"){
+    val p = instrumentParser("fun Int.add(_ x: Int) -> Int {x + self}", 0)
+    val pf = p.function()
+    println(pf.toString)
+    pf match
+      case Function("add", Some(TypeIdentifier("Int", _)), List(), List(Parameter(None, "self", Some(TypeIdentifier("Int", _)), _), Parameter(None, "x", Some(TypeIdentifier("Int", _)), _)), Some(TypeIdentifier("Int", _)), InfixApplication(Identifier("+", _), Identifier("x", _), Identifier("self", _), _), _) => ()
+      case x => fail(f"Expected a correct function, got $x")
   }
 
   test("`function` body is parsed using `expression (1pt)`") {
     val p = instrumentParser("fun f() { 1 + 2 }", 0)
     p.function() match
-      case Function("f", List(), List(), None, InfixApplication(Identifier("+", _), IntegerLiteral("1", _), IntegerLiteral("2", _), _), _) => ()
+      case Function("f", None, List(), List(), None, InfixApplication(Identifier("+", _), IntegerLiteral("1", _), IntegerLiteral("2", _), _), _) => ()
       case x => fail(f"Expected a correct function, got $x.")
   }
 
   test("`function` also parses the optional return type (1pt)") {
     val p = instrumentParser("fun f() -> Int { 1 }", 0)
     p.function() match
-      case Function("f", List(), List(), Some(TypeIdentifier("Int", _)), IntegerLiteral("1", _), _) => ()
+      case Function("f", None, List(), List(), Some(TypeIdentifier("Int", _)), IntegerLiteral("1", _), _) => ()
       case x => fail(f"Expected a correct function, got $x.")
   }
 

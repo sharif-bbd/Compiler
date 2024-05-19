@@ -218,6 +218,7 @@ end TypeDeclaration
 /** A function declaration. */
 final case class Function(
     identifier: String,
+    prefix : Option[TypeIdentifier],
     genericParameters: List[Parameter],
     inputs: List[Parameter],
     output: Option[Type],
