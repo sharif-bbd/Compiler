@@ -229,7 +229,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
           context.output.lastIndexOf("//MAIN\n") + "//MAIN\n".length,
           "int main(){")
       else
-        if(!n.initializer.get.tpe.isSubtypeOf(Type.Unit)){
+        if(!n.entityDeclared.tpe.isSubtypeOf(Type.Unit)){
           context.output ++= "  " * (context.indentation + 1) + transpiledType(n.tpe) + " "
           context.output ++= transpiledReferenceTo(n.entityDeclared)
         }
@@ -239,7 +239,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
       assert(n.initializer.isDefined)
       context.indentation += 1
-      if( !n.initializer.get.tpe.isSubtypeOf(Type.Unit) ){
+      if( !n.entityDeclared.tpe.isSubtypeOf(Type.Unit) ){
         context.output ++= " ="
       }
 
