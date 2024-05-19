@@ -2,7 +2,7 @@ package alpine
 package typing
 
 import alpine.ast
-import alpine.ast.Typecast
+import alpine.ast.{TypeIdentifier, Typecast}
 import alpine.symbols
 import alpine.symbols.{Entity, Type}
 import alpine.typing.Typer.Context
@@ -97,6 +97,9 @@ final class Typer(
       val funType = memoizedUncheckedType(d,d => computedUncheckedType(d))
       funType match
         case Type.Arrow(inputs,output) =>
+          if(d.prefix.isDefined){
+            context.methodIdentifier.addOne(d.identifier,Type.Arrow(inputs,output))
+          }
           checkInstanceOf(d.body, output)
           inner.obligations.add(
             Constraint.Subtype(
@@ -153,6 +156,10 @@ final class Typer(
     
     e.selectee match
       case s: ast.Identifier =>
+        if(context.methodIdentifier.contains(s.value)){
+          val methodArrow= context.methodIdentifier.apply(s.value)
+          return Type.Arrow(Type.Labeled(None,q)::methodArrow.inputs,methodArrow.output)
+        }
         context.obligations.add(
           Constraint.Member(q, m, s.value, e, Constraint.Origin(e.site)))
       case s: ast.IntegerLiteral =>
@@ -165,14 +172,20 @@ final class Typer(
 
   def visitApplication(e: ast.Application)(using context: Typer.Context): Type =
     val funType = e.function.visit(this)
-
+    var outputFun = funType
+    var arguments =  e.arguments.map(labeledExpr => Type.Labeled(labeledExpr.label, labeledExpr.value.visit(this)))
     val outputType = funType match
       case Type.Arrow(input, output) => output
+        if(input.size > arguments.size){
+          arguments = input.head :: arguments
+          outputFun = Type.Arrow(input.tail,output)
+        }
+        output
       case _ => freshTypeVariable()
     context.obligations.add(
       Constraint.Apply(
-        funType,
-        e.arguments.map(labeledExpr => Type.Labeled(labeledExpr.label, labeledExpr.value.visit(this))),
+        outputFun,
+        arguments,
         outputType,
         Constraint.Origin(e.site))
     )
@@ -772,6 +785,10 @@ object Typer:
     /** Unproven formulae about inferred types. */
     var obligations = ProofObligations()
 
+
+    val methodIdentifier: mutable.Map[String, Type.Arrow] = mutable.Map[String,Type.Arrow]()
+
+
     /** Returns `true` if `d` must be exclused from name lookup. */
     def isIgnoredByLookup(d: ast.Declaration): Boolean =
       declarationsIgnoredByLookup.contains(d)
@@ -789,6 +806,7 @@ object Typer:
       assert(scopes.head == n)
       scopes = scopes.drop(1)
       result
+
 
     /** Returns `action` applied with `d` in the declarations to ignore during name lookup. */
     def ignoringDuringLookup[R](d: ast.Declaration, action: Context => R): R =

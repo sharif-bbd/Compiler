@@ -509,6 +509,7 @@ class TyperTests extends munit.FunSuite:
     let x = #a(a: 1).0
     let y: Float = x
     let z: Int = #a(a: 1.2).a
+    let z: Int = #a(a: 1.2).a
     """.stripMargin)
   }
 
@@ -573,6 +574,13 @@ class TyperTests extends munit.FunSuite:
     let x = match "hi" { case _ then 1 }
     let y: Int = x
     """.stripMargin)
+  }
+  test("Method test 1"){
+    shouldPassTypeCheck("""
+     fun Int.negate() -> Int {-self}
+     let x = 10
+     let y: Int = x.negate()
+     """.stripMargin)
   }
 
   def shouldFailTypeCheck(code: String) =
