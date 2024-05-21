@@ -158,6 +158,7 @@ final class Typer(
       case s: ast.Identifier =>
         if(context.methodIdentifier.contains(s.value)){
           val methodArrow= context.methodIdentifier.apply(s.value)
+          e.selectee.visit(this)
           return Type.Arrow(Type.Labeled(None,q)::methodArrow.inputs,methodArrow.output)
         }
         context.obligations.add(

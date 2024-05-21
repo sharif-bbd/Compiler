@@ -2,7 +2,7 @@ package alpine
 package codegen
 
 import alpine.ast
-import alpine.ast.{RecordPattern, Wildcard}
+import alpine.ast.{RecordPattern, TypeIdentifier, Wildcard}
 import alpine.ast.Typecast.{Narrow, NarrowUnconditionally, Widen}
 import alpine.symbols
 import alpine.symbols.Entity.builtinModule
@@ -264,9 +264,11 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     unexpectedVisit(n)
 
   override def visitFunction(n: ast.Function)(using context: Context): Unit =
+    if(n.prefix.isDefined){
+      context.methodIdentifiers.addOne(n.identifier)
+    }
     context.output ++= "  " * context.indentation
-
-
+    
     context.output ++= transpiledType(symbols.Type.Arrow.from(n.tpe).get.output)
 
     context.output ++= transpiledReferenceTo(n.entityDeclared)
@@ -293,9 +295,14 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
   override def visitIdentifier(n: ast.Identifier)(using context: Context): Unit =
     if(context.isTopLevel){
-      context.output ++= transpiledReferenceTo(n.referredEntity.get.entity)
+        context.output ++= transpiledReferenceTo(n.referredEntity.get.entity)
+
     }else{
-      context.output ++= context.patternBindings.getOrElse(n.value,transpiledReferenceTo(n.referredEntity.get.entity))
+      if (n.value == "self") {
+        context.output ++= n.value
+      }else{
+        context.output ++= context.patternBindings.getOrElse(n.value,transpiledReferenceTo(n.referredEntity.get.entity))
+      }
     }
 
   override def visitBooleanLiteral(n: ast.BooleanLiteral)(using context: Context): Unit =
@@ -322,22 +329,34 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       if(context.isTopLevel){
         n.qualification.visit(this)
       }
-      n.referredEntity match
-        case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
-          if(context.isTopLevel){
-            context.output ++= "." + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
-          }else{
-            context.output ++= "p.payload." +
-              transpiledType(e.whole).toLowerCase() + "."
-              + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
-          }
+      (n.qualification,n.selectee) match
+        case (q : ast.Identifier,s : ast.Identifier) if context.methodIdentifiers.contains(s.value) =>
+          context.isMethodApplied = true
+          n.selectee.visit(this)
+          context.output ++= "("
+          n.qualification.visit(this)
+          return
         case _ =>
-          unexpectedVisit(n.selectee)
+
+      n.referredEntity match
+          case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
+            if(context.isTopLevel){
+              context.output ++= "." + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
+            }else{
+              context.output ++= "p.payload." +
+                transpiledType(e.whole).toLowerCase() + "."
+                + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
+            }
+          case _ =>
+            unexpectedVisit(n.selectee)
 
 
   override def visitApplication(n: ast.Application)(using context: Context): Unit =
+    context.isMethodApplied = false
     n.function.visit(this)
-    context.output ++= "("
+    if(!context.isMethodApplied){
+      context.output ++= "("
+    }
     context.output.appendCommaSeparated(n.arguments) { (o, a) => a.value.visit(this) }
     context.output ++= ")"
 
@@ -536,6 +555,13 @@ object CPrinter:
     private val _patternBindings: mutable.Map[String,String] = mutable.Map[String,String]()
 
     def patternBindings: mutable.Map[String,String] = _patternBindings
+
+    var isMethodApplied = false
+
+
+    private val _methodIdentifiers = mutable.Set[String]()
+
+    def methodIdentifiers: mutable.Set[String] = _methodIdentifiers
     /** The (partial) result of the transpilation. */
     private var _output = StringBuilder()
 
@@ -551,6 +577,7 @@ object CPrinter:
     /** Adds `t` to the set of types that are used by the transpiled program. */
     def registerUse(t: symbols.Type.Record): Unit =
       if t != symbols.Type.Unit then _typesToEmit.add(t)
+
 
     /** Returns `action` applied on `this` where `output` has been exchanged with `o`. */
     def swappingOutputBuffer[R](o: StringBuilder)(action: Context => R): R =
