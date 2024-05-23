@@ -181,3 +181,29 @@ let main = print(status)
 //OUT
 5
 //END
+
+/==== METHODS ====/
+
+//BEGIN Simple method
+fun Int.negate() -> Int {-self}
+let x = 10
+let main = print(x.negate())
+//OUT
+-10
+//END
+
+//BEGIN Method with arguments
+fun Float.add(_y : Float) -> Float {self + _y}
+let x = 42.5
+let main = print(x.add(0.7))
+//OUT
+43.200001
+//END
+
+//BEGIN Multiple method call
+fun Int.add(_x: Int) -> Int {self + _x}
+let x = 0
+let main = print(x.add(10).add(-10))
+//OUT
+0
+//END

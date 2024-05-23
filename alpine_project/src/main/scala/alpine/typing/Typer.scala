@@ -506,6 +506,7 @@ final class Typer(
     // The subset of looked up term-level entities that don't have an error type.
     val eligibleEntities = allEntities.filter((e) => e.tpe != Type.Error)
 
+
     if eligibleEntities.isEmpty then
       // No eligible candidate; use the set of all entities to diagnose the error.
       if allEntities.isEmpty then
@@ -691,7 +692,11 @@ final class Typer(
   private def entityDeclared(d: ast.Declaration)(using context: Typer.Context) =
     val n = nameDeclared(d)
     val t = uncheckedType(d)
-    Entity.Declaration(n, t)
+    if(n.qualification.exists(name => context.methodIdentifier.contains(name.identifier))){
+      Entity.Declaration(n.copy(qualification = None),t)
+    }else{
+      Entity.Declaration(n, t)
+    }
 
   /** Returns the name of the entity declared by `d`. */
   private def nameDeclared(d: ast.Declaration): symbols.Name =

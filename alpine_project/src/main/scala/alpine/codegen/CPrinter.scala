@@ -277,15 +277,18 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       o ++= transpiledType(a.tpe)
       o ++= " "
       o ++= a.identifier
+      context.functionParameter.addOne(a.identifier)
+
     }
     context.output ++= "){\n "
     context.indentation += 1
     context.output ++= "  " * context.indentation
+    symbols.Type.Arrow.from(n.tpe).get.output match
+      case Type.Unit =>
+      case _ => context.output ++= "return "
     context.inScope((c) => n.body.visit(this)(using c))
+    context.functionParameter.clear()
     // add return statement to the function
-    context.output.insert(
-      context.output.lastIndexOf(" ")+1,
-      "return ")
     context.output ++= ";\n\n"
     context.indentation -= 1
     context.output ++= "}\n"
@@ -298,7 +301,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
         context.output ++= transpiledReferenceTo(n.referredEntity.get.entity)
 
     }else{
-      if (n.value == "self") {
+      if (context.functionParameter.contains(n.value)) {
         context.output ++= n.value
       }else{
         context.output ++= context.patternBindings.getOrElse(n.value,transpiledReferenceTo(n.referredEntity.get.entity))
@@ -329,8 +332,8 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       if(context.isTopLevel){
         n.qualification.visit(this)
       }
-      (n.qualification,n.selectee) match
-        case (q : ast.Identifier,s : ast.Identifier) if context.methodIdentifiers.contains(s.value) =>
+      n.selectee match
+        case ast.Identifier(value,_) if context.methodIdentifiers.contains(value) =>
           context.isMethodApplied = true
           n.selectee.visit(this)
           context.output ++= "("
@@ -350,13 +353,17 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
           case _ =>
             unexpectedVisit(n.selectee)
 
-
   override def visitApplication(n: ast.Application)(using context: Context): Unit =
     context.isMethodApplied = false
     n.function.visit(this)
     if(!context.isMethodApplied){
       context.output ++= "("
+    }else{
+      if(n.arguments.nonEmpty){
+        context.output ++= ","
+      }
     }
+
     context.output.appendCommaSeparated(n.arguments) { (o, a) => a.value.visit(this) }
     context.output ++= ")"
 
@@ -558,8 +565,9 @@ object CPrinter:
 
     var isMethodApplied = false
 
-
     private val _methodIdentifiers = mutable.Set[String]()
+
+    val functionParameter: mutable.Set[String] = mutable.Set[String]()
 
     def methodIdentifiers: mutable.Set[String] = _methodIdentifiers
     /** The (partial) result of the transpilation. */
