@@ -19,7 +19,7 @@ The following files have been modified for the project :
 You can see more details on our github repository.
 
 ## How to transpile :
-- Write the alpine syntax in `alpine_project/src/test/res/transpiler/test_cases.al` (Only the alpine syntax).
+- Write the alpine syntax in `alpine_project/src/test/res/transpiler/unique_test.al` (Only the alpine syntax).
 - Inside a sbt shell, write `run ./src/test/res/transpiler/unique_test.al`. 
 This will modify the `output.c` file from the`Cgen` folder. 
 - Then, you can go inside the `Cgen` folder and run in a terminal : `make` to compile the C code. Of course,
