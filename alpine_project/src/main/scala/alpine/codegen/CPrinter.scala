@@ -246,6 +246,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       context.output ++= "  " * context.indentation
       n.initializer.get match
         case ast.Identifier(value,_) if value != "print" =>
+
         case _ =>
           context.inScope((c) => n.initializer.get.visit(this)(using c))
           context.output ++= ";\n\n"
@@ -382,11 +383,13 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= ")"
 
   override def visitConditional(n: ast.Conditional)(using context: Context): Unit =
+    context.output ++= "if ("
     n.condition.visit(this)
-    context.output ++= " ? "
+    context.output ++= "){"
     n.successCase.visit(this)
-    context.output ++= " : "
+    context.output ++= ";} else {"
     n.failureCase.visit(this)
+    context.output ++= ";}"
 
   override def visitMatch(n: ast.Match)(using context: Context): Unit =
     context.patternBindings.clear()

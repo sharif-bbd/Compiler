@@ -15,7 +15,6 @@
 #define IDIV(a, b) ((a) / (b))
 #define IREM(a, b) ((a) % (b))
 #define EXIT(a) exit(a)
-
 #define LNOT(a) (!(a))
 #define LAND(a, b) ((a) && (b))
 #define LOR(a, b) ((a) || (b))
@@ -40,6 +39,7 @@
 #define FMUL(a, b) ((a) * (b))
 #define FDIV(a, b) ((a) / (b))
 
+#define EQUALITY(a,b) ((a) == (b))
 #define FLT(a, b) ((a) < (b))
 #define FLE(a, b) ((a) <= (b))
 #define FGT(a, b) ((a) > (b))
