@@ -16,7 +16,7 @@ The following files have been modified for the project :
 - `alpine_project/src/test/scala/alpine/parsing/ParserTests.scala`
 - `alpine_project/src/test/scala/alpine/typing/TyperTests.scala`<br>
 
-You can see more details on our github repository.
+You can see more details on our github repository : https://github.com/sharif-bbd/Compiler/tree/main
 
 ## How to transpile :
 - Write the alpine syntax in `alpine_project/src/test/res/transpiler/unique_test.al` (Only the alpine syntax).
