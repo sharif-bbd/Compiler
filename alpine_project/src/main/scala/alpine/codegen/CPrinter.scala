@@ -334,7 +334,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
 
   override def visitSelection(n: ast.Selection)(using context: Context): Unit =
-      n.qualification.visit(this)
+
       n.selectee match
         case ast.Identifier(value,_) if context.methodIdentifiers.contains(value) =>
           context.isMethodApplied = true
@@ -343,6 +343,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
           n.qualification.visit(this)
           return
         case _ =>
+          n.qualification.visit(this)
 
       n.referredEntity match
           case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
