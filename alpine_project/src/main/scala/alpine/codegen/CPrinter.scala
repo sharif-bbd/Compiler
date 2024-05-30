@@ -246,8 +246,8 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
       context.output ++= "  " * context.indentation
       n.initializer.get match
         case ast.Identifier(value,_) if value != "print" =>
-
         case _ =>
+          context.isTernaryOperator = n.identifier != "main"
           context.inScope((c) => n.initializer.get.visit(this)(using c))
           context.output ++= ";\n\n"
 
@@ -383,13 +383,25 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     context.output ++= ")"
 
   override def visitConditional(n: ast.Conditional)(using context: Context): Unit =
-    context.output ++= "if ("
-    n.condition.visit(this)
-    context.output ++= "){"
-    n.successCase.visit(this)
-    context.output ++= ";} else {"
-    n.failureCase.visit(this)
-    context.output ++= ";}"
+    if(context.isTernaryOperator){
+      n.condition.visit(this)
+      context.output ++= " ? "
+      n.successCase.visit(this)
+      context.output ++= " : "
+      n.failureCase.visit(this)
+      context.output ++= ";"
+    }else{
+      context.output ++= "if ("
+      n.condition.visit(this)
+      context.output ++= "){"
+      n.successCase.visit(this)
+      context.output ++= ";} else {"
+      n.failureCase.visit(this)
+      context.output ++= ";}"
+    }
+
+
+
 
   override def visitMatch(n: ast.Match)(using context: Context): Unit =
     context.patternBindings.clear()
@@ -569,6 +581,8 @@ object CPrinter:
     var isMethodApplied = false
 
     private val _methodIdentifiers = mutable.Set[String]()
+
+    var isTernaryOperator = false
 
     val functionParameter: mutable.Set[String] = mutable.Set[String]()
 
