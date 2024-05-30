@@ -67,7 +67,11 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
     for(syntax <- syntax.declarations){
       syntax.visit(this)(using c)
     }
-    c.typesToEmit.toList.reverse.foreach(rec => emitRecord(rec)(using c))
+    c.typesToEmit
+      .toList
+      .sortBy(- _.fields.count(_.value.isInstanceOf[Type.Record])) //preserve order of declaration for C struct
+      .foreach(rec => emitRecord(rec)(using c))
+
     addPatternMatcher(using c)
     c.output.toString
 
@@ -330,9 +334,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
 
   override def visitSelection(n: ast.Selection)(using context: Context): Unit =
-      if(context.isTopLevel){
-        n.qualification.visit(this)
-      }
+      n.qualification.visit(this)
       n.selectee match
         case ast.Identifier(value,_) if context.methodIdentifiers.contains(value) =>
           context.isMethodApplied = true
@@ -344,13 +346,7 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
 
       n.referredEntity match
           case Some(symbols.EntityReference(e: symbols.Entity.Field, _)) =>
-            if(context.isTopLevel){
               context.output ++= "." + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
-            }else{
-              context.output ++= "p.payload." +
-                transpiledType(e.whole).toLowerCase() + "."
-                + e.whole.fields(e.index).label.getOrElse("$" + s"${e.index}")
-            }
           case _ =>
             unexpectedVisit(n.selectee)
 
@@ -437,6 +433,10 @@ final class CPrinter(syntax: TypedProgram) extends ast.TreeVisitor[CPrinter.Cont
         context.output ++= "  " * context.indentation + s"case ${transpiledType(n.pattern.tpe).toUpperCase()}:\n"
       case ast.Wildcard(_) =>
         context.output ++= "  " * context.indentation + s"default:\n"
+      case _ =>
+    n.pattern match
+      case ast.Binding(identifier,t,_,_) if t.exists(_.tpe.isInstanceOf[Type.Record])=>
+        context.patternBindings.addOne(identifier,"p.payload." + transpiledType(n.pattern.tpe).toLowerCase())
       case _ =>
     n.pattern.visit(this)
     context.indentation += 1
